@@ -1,293 +1,417 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 
-const API_BASE = 'http://localhost:5000/api';
-
-const INITIAL_SERVICES = [
-  { id: 1, name: 'Shampoo Haircut & Blow Dry', price: 75.00, price_mode: 'starting', duration_minutes: 75, category: 'Haircut' },
-  { id: 2, name: 'Shampoo & Blow Dry', price: 40.00, price_mode: 'starting', duration_minutes: 45, category: 'Haircut' },
-  { id: 3, name: 'Single Process Color', price: 100.00, price_mode: 'starting', duration_minutes: 75, category: 'Color' },
-  { id: 4, name: 'Single Process Color & Blow Dry', price: 130.00, price_mode: 'starting', duration_minutes: 120, category: 'Color' },
-  { id: 5, name: 'Single Process + Full Head Highlights', price: 330.00, price_mode: 'starting', duration_minutes: 180, category: 'Color' },
-  { id: 6, name: 'Single Process + Full Head Highlights & Blow Dry', price: 380.00, price_mode: 'starting', duration_minutes: 210, category: 'Color' },
-  { id: 7, name: 'Full Head Highlights', price: 250.00, price_mode: 'fixed', duration_minutes: 150, category: 'Color' },
-  { id: 8, name: 'Full Head Highlights & Blow Dry', price: 290.00, price_mode: 'fixed', duration_minutes: 180, category: 'Color' },
-  { id: 9, name: 'Half Head Highlights', price: 180.00, price_mode: 'fixed', duration_minutes: 90, category: 'Color' },
-  { id: 10, name: 'Half Head Highlights & Blow Dry', price: 220.00, price_mode: 'fixed', duration_minutes: 130, category: 'Color' },
-  { id: 11, name: 'Hair Treatment', price: 35.00, price_mode: 'fixed', duration_minutes: 45, category: 'Treatment' },
-  { id: 12, name: 'Organic Perm', price: 150.00, price_mode: 'starting', duration_minutes: 180, category: 'Treatment' },
-  { id: 13, name: 'Barber Haircut', price: 40.00, price_mode: 'fixed', duration_minutes: 45, category: 'Haircut' },
-  { id: 14, name: 'Makeup', price: null, price_mode: 'consultation', duration_minutes: 60, category: 'Consultation' },
-  { id: 15, name: 'Keratin Protein Treatment', price: null, price_mode: 'consultation', duration_minutes: 180, category: 'Treatment' }
-];
+// Live Render Backend API Endpoint
+const API_BASE_URL = 'https://lesalon-api.onrender.com';
 
 export default function App() {
-  const [step, setStep] = useState(1);
-  const [services, setServices] = useState(INITIAL_SERVICES);
-  const [activeTab, setActiveTab] = useState('All');
+  // Data States
+  const [services, setServices] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedService, setSelectedService] = useState(null);
-  const [selectedDate, setSelectedDate] = useState('');
-  const [availableSlots, setAvailableSlots] = useState([]);
-  const [selectedSlot, setSelectedSlot] = useState(null);
-  const [hoveredCard, setHoveredCard] = useState(null);
-  const [form, setForm] = useState({ fullName: '', email: '', phone: '', notes: '' });
-  const [confirmation, setConfirmation] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Form States
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [notes, setNotes] = useState('');
 
+  // UI & Workflow States
+  const [step, setStep] = useState(1); // Step 1: Service & Time | Step 2: Client Info | Step 3: Success
+  const [loadingServices, setLoadingServices] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [bookingResult, setBookingResult] = useState(null);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  // Fetch Service Catalog on Component Mount
   useEffect(() => {
-    axios.get(`${API_BASE}/services`)
-      .then(res => { if (res.data && res.data.length > 0) setServices(res.data); })
-      .catch(() => console.log("Using local service catalog"));
+    fetchServices();
   }, []);
 
-  const handleDateChange = (e) => {
-    const d = e.target.value;
-    setSelectedDate(d);
-    if (!d || !selectedService) return;
-
-    axios.get(`${API_BASE}/availability?date=${d}&serviceId=${selectedService.id}`)
-      .then(res => setAvailableSlots(res.data.slots))
-      .catch(() => {
-        // Fallback slots generation for offline local testing
-        const slots = [];
-        const base = new Date(`${d}T10:00:00`);
-        for (let i = 0; i < 16; i++) {
-          slots.push(new Date(base.getTime() + i * 30 * 60000).toISOString());
-        }
-        setAvailableSlots(slots);
-      });
+  const fetchServices = async () => {
+    setLoadingServices(true);
+    setErrorMessage('');
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/services`);
+      if (!response.ok) {
+        throw new Error(`Server responded with status: ${response.status}`);
+      }
+      const data = await response.json();
+      setServices(data);
+    } catch (err) {
+      console.error('Error fetching services:', err);
+      setErrorMessage(
+        'The backend server is waking up (Render free tier takes ~30 seconds on cold start). Please click Retry below.'
+      );
+    } finally {
+      setLoadingServices(false);
+    }
   };
 
-  const handleBookAppointment = async (e) => {
+  // Filter Categories
+  const categories = ['All', ...new Set(services.map((s) => s.category || 'General'))];
+  const filteredServices = selectedCategory === 'All'
+    ? services
+    : services.filter((s) => (s.category || 'General') === selectedCategory);
+
+  // Handle Form Submission
+  const handleSubmitBooking = async (e) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    const payload = { ...form, serviceId: selectedService.id, startTime: selectedSlot };
+    if (!selectedService || !date || !time || !fullName || !email || !phone) {
+      setErrorMessage('Please complete all required fields.');
+      return;
+    }
+
+    setSubmitting(true);
+    setErrorMessage('');
+
+    const payload = {
+      service_id: selectedService.id,
+      start_time: `${date}T${time}:00`,
+      full_name: fullName,
+      email: email,
+      phone: phone,
+      notes: notes,
+    };
 
     try {
-      const res = await axios.post(`${API_BASE}/appointments`, payload);
-      setConfirmation(res.data.appointment);
-    } catch {
-      const mockCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-      setConfirmation({ cancellation_code: mockCode });
+      const res = await fetch(`${API_BASE_URL}/api/appointments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setBookingResult(data);
+        setStep(3); // Move to Confirmation screen
+      } else {
+        setErrorMessage(data.message || 'Failed to confirm booking. Please try again.');
+      }
+    } catch (err) {
+      console.error('Submission error:', err);
+      setErrorMessage('Network error while connecting to the booking engine. Please retry.');
+    } finally {
+      setSubmitting(false);
     }
-    setIsSubmitting(false);
-    setStep(4);
   };
 
-  const renderPrice = (s) => {
-    if (s.price_mode === 'consultation') return 'Price upon consultation';
-    if (s.price_mode === 'starting') return `From $${parseFloat(s.price).toFixed(0)}`;
-    return `$${parseFloat(s.price).toFixed(0)}`;
+  // Reset Booking Form
+  const handleReset = () => {
+    setSelectedService(null);
+    setDate('');
+    setTime('');
+    setFullName('');
+    setEmail('');
+    setPhone('');
+    setNotes('');
+    setErrorMessage('');
+    setBookingResult(null);
+    setStep(1);
   };
 
-  const filteredServices = activeTab === 'All' 
-    ? services 
-    : services.filter(s => s.category === activeTab);
+  // Format Currency / Price Mode
+  const formatPrice = (service) => {
+    if (service.price_mode === 'consultation' || !service.price) {
+      return 'Consultation Required';
+    }
+    const priceStr = `$${parseFloat(service.price).toFixed(2)}`;
+    return service.price_mode === 'starting' ? `Starting at ${priceStr}` : priceStr;
+  };
 
   return (
-    <div style={{ backgroundColor: '#FAF8F5', minHeight: '100vh', padding: '40px 16px', fontFamily: "'Playfair Display', Georgia, serif", color: '#2C2A29' }}>
-      <div style={{ maxWidth: '720px', margin: '0 auto', backgroundColor: '#FFFFFF', borderRadius: '16px', boxShadow: '0 15px 35px rgba(0,0,0,0.05)', border: '1px solid #EFECE6', overflow: 'hidden' }}>
-        
-        {/* BRAND HEADER */}
-        <header style={{ textAlign: 'center', padding: '36px 20px 20px 20px', backgroundColor: '#FFFFFF', borderBottom: '1px solid #F5F2EC' }}>
-          <span style={{ fontFamily: 'system-ui, sans-serif', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '3px', color: '#8C857B', display: 'block', marginBottom: '6px' }}>Manhattan, NY</span>
-          <h1 style={{ fontSize: '32px', letterSpacing: '4px', margin: '0 0 8px 0', fontWeight: '500', color: '#1A1A1A', textTransform: 'uppercase' }}>LE SALON NYC</h1>
-          <p style={{ fontFamily: 'system-ui, sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2px', color: '#4A5D4E', margin: 0, fontWeight: '600' }}>
-            Clean Beauty & Organic Hair Care
-          </p>
-
-          {/* STEP INDICATOR BREADCRUMB */}
-          <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '28px', fontFamily: 'system-ui, sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            {['01 Service', '02 Time', '03 Info', '04 Done'].map((label, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ color: step === i + 1 ? '#4A5D4E' : '#C2BEB8', fontWeight: step === i + 1 ? '700' : '400', borderBottom: step === i + 1 ? '2px solid #4A5D4E' : 'none', paddingBottom: '2px' }}>
-                  {label}
-                </span>
-                {i < 3 && <span style={{ color: '#E5E2DC' }}>›</span>}
-              </div>
-            ))}
+    <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans flex flex-col justify-between selection:bg-amber-500 selection:text-neutral-950">
+      
+      {/* Top Luxury Header */}
+      <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur sticky top-0 z-50 py-6 px-4">
+        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
+          <div>
+            <h1 className="text-3xl font-serif tracking-wider text-amber-400">LE SALON NYC</h1>
+            <p className="text-xs uppercase tracking-widest text-neutral-400 mt-1">
+              310 East 44th St, Manhattan • (212) 555-0199
+            </p>
           </div>
-        </header>
+          <div className="text-xs text-neutral-500 border border-neutral-800 px-3 py-1.5 rounded-full uppercase tracking-widest">
+            Online Reservation System
+          </div>
+        </div>
+      </header>
 
-        <div style={{ padding: '32px 28px' }}>
+      {/* Main Content Container */}
+      <main className="max-w-4xl mx-auto w-full px-4 py-8 flex-grow">
+        
+        {/* Progress Tracker Bar */}
+        <div className="flex items-center justify-center mb-8 gap-4 text-xs font-semibold uppercase tracking-wider">
+          <div className={`flex items-center gap-2 ${step >= 1 ? 'text-amber-400' : 'text-neutral-600'}`}>
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${step >= 1 ? 'bg-amber-400 text-neutral-950' : 'bg-neutral-800 text-neutral-400'}`}>1</span>
+            Select Service & Time
+          </div>
+          <div className="w-8 h-[1px] bg-neutral-800"></div>
+          <div className={`flex items-center gap-2 ${step >= 2 ? 'text-amber-400' : 'text-neutral-600'}`}>
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${step >= 2 ? 'bg-amber-400 text-neutral-950' : 'bg-neutral-800 text-neutral-400'}`}>2</span>
+            Your Details
+          </div>
+          <div className="w-8 h-[1px] bg-neutral-800"></div>
+          <div className={`flex items-center gap-2 ${step === 3 ? 'text-amber-400' : 'text-neutral-600'}`}>
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${step === 3 ? 'bg-amber-400 text-neutral-950' : 'bg-neutral-800 text-neutral-400'}`}>3</span>
+            Confirmation
+          </div>
+        </div>
 
-          {/* STEP 1: INTERACTIVE SERVICES CATALOG */}
-          {step === 1 && (
-            <div>
-              {/* CATEGORY TABS */}
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', overflowX: 'auto', paddingBottom: '4px' }}>
-                {['All', 'Haircut', 'Color', 'Treatment'].map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: '20px',
-                      border: '1px solid',
-                      borderColor: activeTab === tab ? '#4A5D4E' : '#EFECE6',
-                      backgroundColor: activeTab === tab ? '#4A5D4E' : '#FAF8F5',
-                      color: activeTab === tab ? '#FFFFFF' : '#7E7A75',
-                      fontSize: '12px',
-                      fontFamily: 'system-ui, sans-serif',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease'
-                    }}
-                  >
-                    {tab}
-                  </button>
-                ))}
+        {/* Global Error Alert */}
+        {errorMessage && (
+          <div className="mb-6 p-4 bg-red-950/80 border border-red-800 rounded-xl text-red-200 text-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+            <span>{errorMessage}</span>
+            {loadingServices && (
+              <button
+                onClick={fetchServices}
+                className="bg-red-800 hover:bg-red-700 text-white px-3 py-1 rounded text-xs tracking-wider uppercase font-semibold"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* STEP 1: SERVICE & DATETIME SELECTION */}
+        {step === 1 && (
+          <div className="space-y-6">
+            
+            {/* Category Filter Tabs */}
+            <div className="flex flex-wrap items-center justify-center gap-2 pb-2">
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-4 py-2 rounded-lg text-xs font-medium uppercase tracking-wider transition ${
+                    selectedCategory === cat
+                      ? 'bg-amber-400 text-neutral-950 font-bold shadow-md'
+                      : 'bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-neutral-200'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Service Grid */}
+            {loadingServices ? (
+              <div className="py-16 text-center space-y-3 bg-neutral-900/50 border border-neutral-800 rounded-2xl">
+                <div className="inline-block w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-sm text-neutral-400">Loading service catalog from cloud database...</p>
               </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {filteredServices.map(s => {
-                  const isHovered = hoveredCard === s.id;
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredServices.map((service) => {
+                  const isSelected = selectedService?.id === service.id;
                   return (
                     <div
-                      key={s.id}
-                      onMouseEnter={() => setHoveredCard(s.id)}
-                      onMouseLeave={() => setHoveredCard(null)}
-                      onClick={() => { setSelectedService(s); setStep(2); }}
-                      style={{
-                        padding: '20px 24px',
-                        border: isHovered ? '1px solid #4A5D4E' : '1px solid #EFECE6',
-                        borderRadius: '10px',
-                        cursor: 'pointer',
-                        backgroundColor: isHovered ? '#FFFFFF' : '#FAF8F5',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        transform: isHovered ? 'translateY(-2px)' : 'none',
-                        boxShadow: isHovered ? '0 8px 20px rgba(74,93,78,0.08)' : 'none',
-                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-                      }}
+                      key={service.id}
+                      onClick={() => setSelectedService(service)}
+                      className={`cursor-pointer p-5 rounded-2xl border transition duration-200 flex flex-col justify-between ${
+                        isSelected
+                          ? 'bg-neutral-900 border-amber-400 ring-1 ring-amber-400 shadow-xl'
+                          : 'bg-neutral-900/60 border-neutral-800/80 hover:border-neutral-700 hover:bg-neutral-900'
+                      }`}
                     >
                       <div>
-                        <div style={{ fontWeight: '600', fontSize: '17px', color: '#2C2A29' }}>{s.name}</div>
-                        <div style={{ fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#8C857B', marginTop: '4px' }}>
-                          Est. Duration: {s.duration_minutes} mins
+                        <div className="flex justify-between items-start gap-2">
+                          <h3 className="font-serif text-lg text-neutral-100">{service.name}</h3>
+                          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-neutral-800 text-amber-400 whitespace-nowrap">
+                            {formatPrice(service)}
+                          </span>
                         </div>
+                        <p className="text-xs text-neutral-500 mt-2 flex items-center gap-1">
+                          ⏱ {service.duration_minutes} Minutes • {service.category || 'General'}
+                        </p>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <span style={{ fontFamily: 'system-ui, sans-serif', fontWeight: '600', fontSize: '14px', color: '#4A5D4E', display: 'block' }}>
-                          {renderPrice(s)}
-                        </span>
-                        <span style={{ fontFamily: 'system-ui, sans-serif', fontSize: '11px', color: '#B5B0A8', marginTop: '2px', display: 'block' }}>Select &rarr;</span>
+
+                      <div className="mt-4 pt-3 border-t border-neutral-800/60 flex items-center justify-between text-xs">
+                        <span className="text-neutral-400">{isSelected ? 'Selected' : 'Click to select'}</span>
+                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${isSelected ? 'border-amber-400 bg-amber-400 text-neutral-950 font-bold' : 'border-neutral-700'}`}>
+                          {isSelected && '✓'}
+                        </div>
                       </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* STEP 2: DATE & TIME SELECTION */}
-          {step === 2 && selectedService && (
-            <div>
-              <button onClick={() => setStep(1)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', fontFamily: 'system-ui, sans-serif', color: '#8C857B', marginBottom: '20px', padding: 0 }}>
-                &larr; Back to Services
-              </button>
-              <h2 style={{ fontFamily: 'system-ui, sans-serif', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '6px', color: '#4A5D4E', fontWeight: '600' }}>
-                Select Appointment Time
-              </h2>
-              <p style={{ fontSize: '15px', color: '#57534E', marginBottom: '24px' }}>
-                Service: <strong>{selectedService.name}</strong> ({renderPrice(selectedService)})
-              </p>
+            {/* Date & Time Picker Card */}
+            {selectedService && (
+              <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl space-y-4 animate-fade-in">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-amber-400">
+                  Choose Appointment Date & Time
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-neutral-400 mb-2">Date</label>
+                    <input
+                      type="date"
+                      required
+                      min={new Date().toISOString().split('T')[0]}
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-neutral-100 focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs uppercase tracking-wider text-neutral-400 mb-2">Time Slot</label>
+                    <input
+                      type="time"
+                      required
+                      value={time}
+                      onChange={(e) => setTime(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-neutral-100 focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+                </div>
 
-              <label style={{ display: 'block', fontFamily: 'system-ui, sans-serif', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#8C857B' }}>Choose Preferred Date:</label>
-              <input
-                type="date"
-                onChange={handleDateChange}
-                style={{ width: '100%', padding: '14px', fontSize: '14px', borderRadius: '8px', border: '1px solid #D6D3D1', marginBottom: '28px', boxSizing: 'border-box', backgroundColor: '#FAF8F5', fontFamily: 'system-ui, sans-serif', outline: 'none' }}
-              />
-
-              {selectedDate && availableSlots.length === 0 && (
-                <p style={{ fontFamily: 'system-ui, sans-serif', fontSize: '13px', color: '#8C857B', textAlign: 'center', padding: '20px' }}>Loading available slots...</p>
-              )}
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-                {availableSlots.map((slot, idx) => (
+                <div className="pt-2 flex justify-end">
                   <button
-                    key={idx}
-                    onClick={() => { setSelectedSlot(slot); setStep(3); }}
-                    style={{
-                      padding: '14px',
-                      backgroundColor: '#4A5D4E',
-                      color: '#FFFFFF',
-                      border: 'none',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      fontFamily: 'system-ui, sans-serif',
-                      fontWeight: '500',
-                      transition: 'all 0.15s ease'
-                    }}
-                    onMouseEnter={(e) => e.target.style.backgroundColor = '#38473B'}
-                    onMouseLeave={(e) => e.target.style.backgroundColor = '#4A5D4E'}
+                    disabled={!date || !time}
+                    onClick={() => setStep(2)}
+                    className="w-full sm:w-auto px-8 py-3 bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-neutral-950 font-semibold rounded-xl text-sm transition tracking-wide"
                   >
-                    {new Date(slot).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                    Continue to Client Details →
                   </button>
-                ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
+        )}
 
-          {/* STEP 3: CONTACT FORM */}
-          {step === 3 && (
-            <form onSubmit={handleBookAppointment} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-              <button onClick={() => setStep(2)} type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', fontFamily: 'system-ui, sans-serif', color: '#8C857B', textAlign: 'left', padding: 0 }}>
-                &larr; Back to Time Slots
-              </button>
-              <h2 style={{ fontFamily: 'system-ui, sans-serif', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#4A5D4E', fontWeight: '600' }}>
-                Your Contact Information
-              </h2>
-
-              <input type="text" required placeholder="Full Name" onChange={e => setForm({...form, fullName: e.target.value})} style={{ padding: '14px', border: '1px solid #D6D3D1', borderRadius: '8px', fontSize: '14px', fontFamily: 'system-ui, sans-serif', backgroundColor: '#FAF8F5' }} />
-              <input type="email" required placeholder="Email Address (For instant confirmation)" onChange={e => setForm({...form, email: e.target.value})} style={{ padding: '14px', border: '1px solid #D6D3D1', borderRadius: '8px', fontSize: '14px', fontFamily: 'system-ui, sans-serif', backgroundColor: '#FAF8F5' }} />
-              <input type="tel" required placeholder="Phone Number" onChange={e => setForm({...form, phone: e.target.value})} style={{ padding: '14px', border: '1px solid #D6D3D1', borderRadius: '8px', fontSize: '14px', fontFamily: 'system-ui, sans-serif', backgroundColor: '#FAF8F5' }} />
-              <textarea placeholder="Special Notes or Requests (Optional)" onChange={e => setForm({...form, notes: e.target.value})} style={{ padding: '14px', border: '1px solid #D6D3D1', borderRadius: '8px', fontSize: '14px', fontFamily: 'system-ui, sans-serif', backgroundColor: '#FAF8F5', minHeight: '80px' }} />
-
-              <div style={{ backgroundColor: '#FAF8F5', border: '1px solid #EFECE6', padding: '16px', borderRadius: '8px', fontSize: '13px', fontFamily: 'system-ui, sans-serif', color: '#57534E', lineHeight: '1.5' }}>
-                🌿 <strong>Pay at Salon:</strong> No deposit required today. You will receive an automated email confirmation upon booking.
-              </div>
-
-              <button 
-                type="submit" 
-                disabled={isSubmitting}
-                style={{ 
-                  padding: '16px', 
-                  backgroundColor: '#2C2A29', 
-                  color: '#FFFFFF', 
-                  border: 'none', 
-                  borderRadius: '8px', 
-                  cursor: isSubmitting ? 'wait' : 'pointer', 
-                  fontSize: '13px', 
-                  fontFamily: 'system-ui, sans-serif', 
-                  letterSpacing: '1.5px', 
-                  textTransform: 'uppercase', 
-                  fontWeight: '600' 
-                }}
-              >
-                {isSubmitting ? 'Processing...' : 'Confirm Appointment'}
-              </button>
-            </form>
-          )}
-
-          {/* STEP 4: CONFIRMATION SCREEN */}
-          {step === 4 && confirmation && (
-            <div style={{ textAlign: 'center', backgroundColor: '#FAF8F5', border: '1px solid #EFECE6', padding: '40px 24px', borderRadius: '12px' }}>
-              <div style={{ fontSize: '36px', marginBottom: '12px' }}>✨</div>
-              <h2 style={{ color: '#4A5D4E', margin: '0 0 12px 0', fontSize: '26px' }}>Appointment Reserved</h2>
-              <p style={{ fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#57534E', margin: '0 0 20px 0', lineHeight: '1.6' }}>
-                Thank you for booking with Le Salon NYC. An automated confirmation email has been sent to your inbox.
+        {/* STEP 2: CLIENT INFORMATION FORM */}
+        {step === 2 && selectedService && (
+          <div className="max-w-2xl mx-auto bg-neutral-900 border border-neutral-800 rounded-2xl p-6 sm:p-8 space-y-6">
+            <div className="border-b border-neutral-800 pb-4">
+              <h2 className="text-xl font-serif text-amber-400">Client Information</h2>
+              <p className="text-xs text-neutral-400 mt-1">
+                Booking: <strong className="text-neutral-200">{selectedService.name}</strong> on <strong className="text-neutral-200">{date}</strong> at <strong className="text-neutral-200">{time}</strong>
               </p>
-              <div style={{ fontFamily: 'system-ui, sans-serif', fontSize: '12px', backgroundColor: '#FFFFFF', border: '1px solid #D6D3D1', padding: '12px 20px', borderRadius: '6px', display: 'inline-block', color: '#2C2A29' }}>
-                Cancellation Reference: <strong>{confirmation.cancellation_code}</strong>
+            </div>
+
+            <form onSubmit={handleSubmitBooking} className="space-y-4">
+              <div>
+                <label className="block text-xs uppercase tracking-wider text-neutral-400 mb-1.5">Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Jane Doe"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-neutral-100 focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-neutral-400 mb-1.5">Email Address *</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="jane@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-neutral-100 focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs uppercase tracking-wider text-neutral-400 mb-1.5">Phone Number *</label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="(212) 555-0199"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-neutral-100 focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs uppercase tracking-wider text-neutral-400 mb-1.5">Special Notes / Requests (Optional)</label>
+                <textarea
+                  rows="3"
+                  placeholder="Mention hair conditions, preferences, or special requests..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-neutral-100 focus:outline-none focus:border-amber-400"
+                ></textarea>
+              </div>
+
+              <div className="pt-4 flex items-center justify-between gap-4">
+                <button
+                  type="button"
+                  onClick={() => setStep(1)}
+                  className="px-5 py-3 border border-neutral-800 hover:bg-neutral-800 text-neutral-300 rounded-xl text-xs font-semibold uppercase tracking-wider"
+                >
+                  ← Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-8 py-3 bg-amber-400 hover:bg-amber-300 text-neutral-950 font-semibold rounded-xl text-sm transition tracking-wide disabled:opacity-50"
+                >
+                  {submitting ? 'Confirming Reservation...' : 'Complete Reservation'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* STEP 3: SUCCESS CONFIRMATION SCREEN */}
+        {step === 3 && bookingResult && (
+          <div className="max-w-2xl mx-auto bg-neutral-900 border border-emerald-900/60 rounded-2xl p-8 text-center space-y-6 shadow-2xl">
+            <div className="w-16 h-16 bg-emerald-950 border border-emerald-500 text-emerald-400 rounded-full flex items-center justify-center text-2xl mx-auto">
+              ✓
+            </div>
+
+            <div>
+              <h2 className="text-2xl font-serif text-emerald-400">Appointment Confirmed!</h2>
+              <p className="text-xs text-neutral-400 mt-1">
+                A confirmation email has been dispatched to <strong className="text-neutral-200">{email}</strong>.
+              </p>
+            </div>
+
+            <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-5 text-left text-xs space-y-2">
+              <div className="flex justify-between border-b border-neutral-800/80 pb-2">
+                <span className="text-neutral-400">Service:</span>
+                <span className="text-neutral-200 font-semibold">{selectedService?.name}</span>
+              </div>
+              <div className="flex justify-between border-b border-neutral-800/80 pb-2">
+                <span className="text-neutral-400">Date & Time:</span>
+                <span className="text-neutral-200 font-semibold">{date} at {time}</span>
+              </div>
+              <div className="flex justify-between border-b border-neutral-800/80 pb-2">
+                <span className="text-neutral-400">Client:</span>
+                <span className="text-neutral-200 font-semibold">{fullName} ({phone})</span>
+              </div>
+              <div className="flex justify-between pt-1">
+                <span className="text-neutral-400">Cancellation Code:</span>
+                <span className="font-mono text-amber-400 font-bold">{bookingResult.cancellation_code}</span>
               </div>
             </div>
-          )}
 
-        </div>
-      </div>
+            <button
+              onClick={handleReset}
+              className="px-6 py-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-xl text-xs font-semibold uppercase tracking-wider transition"
+            >
+              Book Another Appointment
+            </button>
+          </div>
+        )}
+
+      </main>
+
+      {/* Luxury Footer */}
+      <footer className="border-t border-neutral-800 py-6 text-center text-xs text-neutral-500">
+        <p>© {new Date().getFullYear()} Le Salon NYC. 310 East 44th St, Manhattan, NY 10017.</p>
+        <p className="mt-1 text-neutral-600">Powered by Neon PostgreSQL & Render API</p>
+      </footer>
     </div>
   );
 }
