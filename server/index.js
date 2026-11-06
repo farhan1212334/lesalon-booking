@@ -18,10 +18,10 @@ const pool = new Pool({
   },
 });
 
-// Comprehensive Database Migration on Startup
+// Comprehensive DB Auto-Migration on Startup
 const initDb = async () => {
   try {
-    // 1. Ensure tables exist
+    // 1. Ensure table exists with all required columns
     await pool.query(`
       CREATE TABLE IF NOT EXISTS appointments (
         id SERIAL PRIMARY KEY,
@@ -29,6 +29,7 @@ const initDb = async () => {
         service_name VARCHAR(255),
         duration_minutes INTEGER DEFAULT 45,
         start_time TIMESTAMPTZ,
+        end_time TIMESTAMPTZ,
         full_name VARCHAR(255),
         email VARCHAR(255),
         phone VARCHAR(50),
@@ -39,12 +40,14 @@ const initDb = async () => {
       );
     `);
 
-    // 2. Add missing columns safely if table already existed
+    // 2. Add missing columns and remove strict constraints safely
     const alterQueries = [
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_id INTEGER;',
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_name VARCHAR(255);',
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_minutes INTEGER DEFAULT 45;',
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;',
+      'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;',
+      'ALTER TABLE appointments ALTER COLUMN end_time DROP NOT NULL;',
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS full_name VARCHAR(255);',
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS email VARCHAR(255);',
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS phone VARCHAR(50);',
@@ -54,12 +57,12 @@ const initDb = async () => {
     ];
 
     for (const q of alterQueries) {
-      await pool.query(q).catch((e) => console.log('Migration step notice:', e.message));
+      await pool.query(q).catch((e) => console.log('DB Schema sync step:', e.message));
     }
 
-    console.log('✅ Neon PostgreSQL database schema fully verified and aligned.');
+    console.log('✅ PostgreSQL DB schema aligned (end_time & constraints updated).');
   } catch (err) {
-    console.error('❌ Database schema initialization error:', err.message);
+    console.error('❌ Database schema migration error:', err.message);
   }
 };
 initDb();
@@ -95,7 +98,7 @@ async function sendBrevoEmail({ to, subject, htmlContent }) {
 }
 
 // --------------------------------------------------------------------------
-// 1. Diagnostic Health & Email Test Endpoint
+// 1. Health & Test Endpoint
 // --------------------------------------------------------------------------
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timezone: 'America/New_York', timestamp: new Date() });
@@ -110,12 +113,12 @@ app.get('/api/test-email', async (req, res) => {
       htmlContent: `
         <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #b88e28; border-radius: 8px;">
           <h2 style="color: #b88e28;">Diagnostic Email Successful</h2>
-          <p>Your Brevo HTTP REST API integration is working cleanly on Render.</p>
+          <p>Brevo HTTP REST API is operating correctly on Render.</p>
           <p><strong>Server Timezone:</strong> America/New_York</p>
         </div>
       `,
     });
-    res.json({ success: true, message: `Diagnostic test email successfully sent to ${adminEmail}!`, result });
+    res.json({ success: true, message: `Diagnostic test email sent to ${adminEmail}!`, result });
   } catch (error) {
     console.error('Test email failed:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -150,7 +153,7 @@ app.get('/api/booked-slots', async (req, res) => {
     const endOfDay = `${date}T23:59:59.999Z`;
 
     const query = `
-      SELECT start_time, duration_minutes 
+      SELECT start_time, end_time, duration_minutes 
       FROM appointments 
       WHERE start_time >= $1 AND start_time <= $2 AND (status IS NULL OR status != 'cancelled')
     `;
@@ -158,7 +161,7 @@ app.get('/api/booked-slots', async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error('Error fetching booked slots:', err);
-    res.json([]); // Fail-safe empty list if table is fresh
+    res.json([]);
   }
 });
 
@@ -173,7 +176,7 @@ app.post('/api/appointments', async (req, res) => {
   }
 
   try {
-    // A. Fetch service details or fallback to default catalog
+    // A. Fetch service details or fallback to default
     let service = { name: 'Salon Service', duration_minutes: 60, price_display: 'Upon Consultation' };
     try {
       const serviceRes = await pool.query('SELECT * FROM services WHERE id = $1', [service_id]);
@@ -181,26 +184,36 @@ app.post('/api/appointments', async (req, res) => {
         service = serviceRes.rows[0];
       }
     } catch (e) {
-      console.log('Using request catalog details');
+      console.log('Using fallback service details');
     }
 
-    // B. Collision check for existing overlapping bookings
-    const requestedStart = new Date(start_time).getTime();
-    const requestedEnd = requestedStart + (service.duration_minutes || 45) * 60000;
+    // B. Calculate start and end time objects
+    const durationMins = service.duration_minutes || 45;
+    const requestedStartObj = new Date(start_time);
+    const requestedEndObj = new Date(requestedStartObj.getTime() + durationMins * 60000);
 
+    const requestedStartISO = requestedStartObj.toISOString();
+    const requestedEndISO = requestedEndObj.toISOString();
+
+    // C. Collision Check against existing non-cancelled bookings
     try {
       const conflictCheckQuery = `
-        SELECT id, start_time, duration_minutes 
+        SELECT id, start_time, end_time, duration_minutes 
         FROM appointments 
         WHERE (status IS NULL OR status != 'cancelled')
       `;
       const existingBookings = await pool.query(conflictCheckQuery);
 
+      const reqStartMs = requestedStartObj.getTime();
+      const reqEndMs = requestedEndObj.getTime();
+
       const hasConflict = existingBookings.rows.some((b) => {
         if (!b.start_time) return false;
-        const bStart = new Date(b.start_time).getTime();
-        const bEnd = bStart + (b.duration_minutes || 45) * 60000;
-        return requestedStart < bEnd && requestedEnd > bStart;
+        const bStartMs = new Date(b.start_time).getTime();
+        const bEndMs = b.end_time 
+          ? new Date(b.end_time).getTime() 
+          : bStartMs + (b.duration_minutes || 45) * 60000;
+        return reqStartMs < bEndMs && reqEndMs > bStartMs;
       });
 
       if (hasConflict) {
@@ -210,24 +223,25 @@ app.post('/api/appointments', async (req, res) => {
         });
       }
     } catch (e) {
-      console.log('Skipping collision check on fresh table setup');
+      console.log('Skipping collision check step');
     }
 
-    // C. Generate unique 6-character reference code
+    // D. Generate 6-character reference code
     const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-    // D. Save appointment to PostgreSQL
+    // E. Insert Appointment into PostgreSQL (Including start_time AND end_time)
     const insertQuery = `
       INSERT INTO appointments 
-      (service_id, service_name, duration_minutes, start_time, full_name, email, phone, notes, cancellation_code, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'confirmed')
+      (service_id, service_name, duration_minutes, start_time, end_time, full_name, email, phone, notes, cancellation_code, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'confirmed')
       RETURNING *
     `;
     const insertValues = [
       service_id,
       service.name || 'Salon Service',
-      service.duration_minutes || 45,
-      start_time,
+      durationMins,
+      requestedStartISO,
+      requestedEndISO,
       full_name,
       email,
       phone,
@@ -238,8 +252,8 @@ app.post('/api/appointments', async (req, res) => {
     const { rows } = await pool.query(insertQuery, insertValues);
     const newAppointment = rows[0];
 
-    // E. Format Date strictly in America/New_York Timezone for Emails
-    const formattedDateStr = new Date(start_time).toLocaleString('en-US', {
+    // F. Format Date strictly in America/New_York Timezone for Emails
+    const formattedDateStr = requestedStartObj.toLocaleString('en-US', {
       timeZone: 'America/New_York',
       weekday: 'long',
       year: 'numeric',
@@ -250,7 +264,7 @@ app.post('/api/appointments', async (req, res) => {
       hour12: true,
     }) + ' (New York Time)';
 
-    // F. Prepare Customer & Admin Emails
+    // G. Prepare Customer and Admin HTML Emails
     const customerHtml = `
       <div style="font-family: 'Montserrat', Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e6d3a7; border-radius: 12px; padding: 30px; color: #1f1f1f;">
         <div style="text-align: center; border-bottom: 1px solid #e6e1da; padding-bottom: 20px; margin-bottom: 25px;">
@@ -269,7 +283,7 @@ app.post('/api/appointments', async (req, res) => {
         <h3 style="color: #121212; border-bottom: 1px solid #eee; padding-bottom: 8px;">Appointment Details</h3>
         <ul style="list-style: none; padding: 0; line-height: 1.8;">
           <li><strong>Service:</strong> ${service.name || 'Salon Service'}</li>
-          <li><strong>Duration:</strong> ${service.duration_minutes || 45} Minutes</li>
+          <li><strong>Duration:</strong> ${durationMins} Minutes</li>
           <li><strong>Date & Time:</strong> ${formattedDateStr}</li>
           <li><strong>Location:</strong> 310 East 44th St, Manhattan, NY 10017</li>
         </ul>
@@ -296,7 +310,7 @@ app.post('/api/appointments', async (req, res) => {
       </div>
     `;
 
-    // G. Send Emails non-blockingly so API response is guaranteed
+    // Dispatch Emails non-blockingly
     sendBrevoEmail({
       to: email,
       subject: `Reservation Confirmed — Le Salon NYC (${cancellation_code})`,
