@@ -41,7 +41,7 @@ export default function App() {
   const [bookingResult, setBookingResult] = useState(null);
   const [serverError, setServerError] = useState('');
 
-  // 1. Fetch backend services with fallback to master list
+  // 1. Fetch backend services with fallback
   useEffect(() => {
     fetch(`${API_BASE_URL}/services`)
       .then((res) => res.json())
@@ -54,10 +54,10 @@ export default function App() {
           setServices(merged);
         }
       })
-      .catch((err) => console.log('Using static service catalog'));
+      .catch(() => console.log('Using static service catalog'));
   }, []);
 
-  // 2. Fetch Booked Slots & Compute Duration Slots (Start to End Time)
+  // 2. Fetch Booked Slots & Compute Duration Slots
   useEffect(() => {
     if (!selectedDate || !selectedService) return;
 
@@ -72,40 +72,56 @@ export default function App() {
       .finally(() => setLoadingSlots(false));
   }, [selectedDate, selectedService]);
 
-  // Dynamic Time Slot Calculator (Outputs e.g. "10:00 AM – 12:00 PM")
+  // Strict New York Time Slot Calculation
   const calculateTimeSlots = (dateStr, durationMins, bookedList) => {
     const slots = [];
-    const openHour = 9;   // 9:00 AM
-    const closeHour = 19; // 7:00 PM
+    const openMinutes = 9 * 60;   // 9:00 AM (540 mins)
+    const closeMinutes = 19 * 60; // 7:00 PM (1140 mins)
 
-    const startOfDay = new Date(`${dateStr}T00:00:00`);
-    const salonOpenTime = new Date(startOfDay.getTime() + openHour * 3600000);
-    const salonCloseTime = new Date(startOfDay.getTime() + closeHour * 3600000);
+    // Detect if New York is currently in Daylight Saving Time (EDT -04:00 vs EST -05:00)
+    const testDate = new Date(`${dateStr}T12:00:00Z`);
+    const nyTimeStr = testDate.toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' });
+    const nyOffset = nyTimeStr.includes('EDT') ? '-04:00' : '-05:00';
 
-    let currentTime = new Date(salonOpenTime);
+    const pad = (n) => String(n).padStart(2, '0');
 
-    while (currentTime.getTime() + durationMins * 60000 <= salonCloseTime.getTime()) {
-      const slotStart = new Date(currentTime);
-      const slotEnd = new Date(slotStart.getTime() + durationMins * 60000);
+    for (let currentMins = openMinutes; currentMins + durationMins <= closeMinutes; currentMins += 30) {
+      const startH = Math.floor(currentMins / 60);
+      const startM = currentMins % 60;
 
-      // Check collision with existing database bookings
+      const endMins = currentMins + durationMins;
+      const endH = Math.floor(endMins / 60);
+      const endM = endMins % 60;
+
+      // Create explicit ISO timestamp locked to New York offset
+      const isoStart = `${dateStr}T${pad(startH)}:${pad(startM)}:00${nyOffset}`;
+      const slotStartMs = new Date(isoStart).getTime();
+      const slotEndMs = slotStartMs + durationMins * 60000;
+
+      // Check collision against database booked slots
       const isBooked = bookedList.some((booking) => {
-        const bStart = new Date(booking.start_time).getTime();
-        const bEnd = bStart + (booking.duration_minutes || 45) * 60000;
-        return slotStart.getTime() < bEnd && slotEnd.getTime() > bStart;
+        if (!booking.start_time) return false;
+        const bStartMs = new Date(booking.start_time).getTime();
+        const bEndMs = booking.end_time 
+          ? new Date(booking.end_time).getTime() 
+          : bStartMs + (booking.duration_minutes || 45) * 60000;
+        return slotStartMs < bEndMs && slotEndMs > bStartMs;
       });
 
-      const startFormatted = slotStart.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-      const endFormatted = slotEnd.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+      // Format 12-hour display label (e.g. "9:00 AM – 11:00 AM")
+      const format12H = (h, m) => {
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const h12 = h % 12 === 0 ? 12 : h % 12;
+        return `${h12}:${pad(m)} ${ampm}`;
+      };
+
+      const timeDisplay = `${format12H(startH, startM)} – ${format12H(endH, endM)}`;
 
       slots.push({
-        timeDisplay: `${startFormatted} – ${endFormatted}`,
-        isoStart: slotStart.toISOString(),
+        timeDisplay,
+        isoStart,
         isBooked,
       });
-
-      // 30-minute interval steps across business day
-      currentTime = new Date(currentTime.getTime() + 30 * 60000);
     }
 
     setAvailableSlots(slots);
@@ -117,7 +133,7 @@ export default function App() {
     setStep(2);
   };
 
-  // Form Validation Logic
+  // Client Form Validations
   const validateForm = () => {
     const errors = {};
     if (!formData.full_name.trim()) {
@@ -128,14 +144,14 @@ export default function App() {
     if (!formData.email.trim()) {
       errors.email = 'Email address is required.';
     } else if (!emailRegex.test(formData.email.trim())) {
-      errors.email = 'Please enter a valid email address (e.g. name@domain.com).';
+      errors.email = 'Please enter a valid email address.';
     }
 
     const phoneDigits = formData.phone.replace(/\D/g, '');
     if (!formData.phone.trim()) {
       errors.phone = 'Phone number is required.';
     } else if (phoneDigits.length < 7) {
-      errors.phone = 'Please enter a valid phone number (at least 7 digits).';
+      errors.phone = 'Please enter a valid phone number.';
     }
 
     setFormErrors(errors);
@@ -193,7 +209,7 @@ export default function App() {
         <p className="brand-address">310 East 44th St, New York, NY • (212) 949-6693</p>
       </header>
 
-      {/* Interactive Step Progress Bar */}
+      {/* Step Progress Bar */}
       <nav className="step-bar">
         <div className={`step-node ${step >= 1 ? 'active' : ''}`} onClick={() => step > 1 && setStep(1)}>
           <span className="step-num">1</span>
@@ -286,7 +302,7 @@ export default function App() {
               </label>
 
               {loadingSlots ? (
-                <div className="loading-spinner">Calculating available duration slots...</div>
+                <div className="loading-spinner">Calculating open slots...</div>
               ) : availableSlots.length === 0 ? (
                 <p className="no-slots">No slots remaining for this date. Please select another date above.</p>
               ) : (
@@ -322,7 +338,7 @@ export default function App() {
         </section>
       )}
 
-      {/* STEP 3: NEAT & VALIDATED CLIENT DETAILS FORM */}
+      {/* STEP 3: CLIENT DETAILS FORM */}
       {step === 3 && selectedService && selectedSlot && (
         <section className="step-content">
           <div className="section-header">
@@ -331,7 +347,6 @@ export default function App() {
             <p>Please enter your contact information to finalize your appointment.</p>
           </div>
 
-          {/* Clean Reservation Summary Panel */}
           <div className="summary-card-panel">
             <h3 className="summary-card-title">Booking Overview</h3>
             <div className="summary-grid">
@@ -344,7 +359,7 @@ export default function App() {
                 <span className="cell-val">{selectedService.duration_minutes} Minutes</span>
               </div>
               <div className="summary-cell">
-                <span className="cell-label">Reserved Time</span>
+                <span className="cell-label">Reserved Time (NY Time)</span>
                 <span className="cell-val">{selectedSlot.timeDisplay}</span>
               </div>
               <div className="summary-cell">
@@ -354,7 +369,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Client Details Form */}
           <form onSubmit={handleFormSubmit} className="client-form-card" noValidate>
             {serverError && <div className="error-banner">{serverError}</div>}
 
@@ -451,7 +465,7 @@ export default function App() {
             </div>
             <div className="summary-item">
               <span>Time Slot:</span>
-              <strong>{selectedSlot.timeDisplay}</strong>
+              <strong>{selectedSlot.timeDisplay} (New York Time)</strong>
             </div>
             <div className="summary-item">
               <span>Salon Location:</span>
