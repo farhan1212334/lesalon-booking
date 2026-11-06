@@ -6,17 +6,14 @@ require('dotenv').config();
 
 const app = express();
 
-// Enable CORS for Vercel and all clients
 app.use(cors());
 app.use(express.json());
 
-// PostgreSQL Connection Pool (Neon.tech)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-// Nodemailer Gmail SMTP Transporter
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -25,12 +22,11 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Health check endpoint
 app.get('/', (req, res) => {
-  res.send('Le Salon NYC API Server is Live & Operational.');
+  res.send('Le Salon NYC API Server is Live.');
 });
 
-// Fetch Services Catalog
+// Get Services Catalog
 app.get('/api/services', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM services ORDER BY id ASC');
@@ -38,6 +34,26 @@ app.get('/api/services', async (req, res) => {
   } catch (err) {
     console.error('Database query error:', err);
     res.status(500).json({ error: 'Failed to retrieve services' });
+  }
+});
+
+// Fetch Booked Slots for a Specific Date (Real-time conflict checking)
+app.get('/api/booked-slots', async (req, res) => {
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ error: 'Date parameter is required' });
+
+  try {
+    const query = `
+      SELECT a.start_time, s.duration_minutes 
+      FROM appointments a
+      JOIN services s ON a.service_id = s.id
+      WHERE DATE(a.start_time) = $1 AND (a.status IS NULL OR a.status != 'cancelled')
+    `;
+    const result = await pool.query(query, [date]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching booked slots:', err);
+    res.status(500).json({ error: 'Failed to fetch booked slots' });
   }
 });
 
@@ -50,7 +66,6 @@ app.post('/api/appointments', async (req, res) => {
   }
 
   try {
-    // 1. Create or fetch existing customer
     let customerResult = await pool.query('SELECT id FROM customers WHERE email = $1', [email]);
     let customerId;
 
@@ -64,10 +79,8 @@ app.post('/api/appointments', async (req, res) => {
       customerId = customerResult.rows[0].id;
     }
 
-    // 2. Generate random 6-character cancellation code
     const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-    // 3. Insert appointment record
     const appointmentResult = await pool.query(
       `INSERT INTO appointments (customer_id, service_id, start_time, notes, cancellation_code, status)
        VALUES ($1, $2, $3, $4, $5, 'confirmed')
@@ -75,24 +88,22 @@ app.post('/api/appointments', async (req, res) => {
       [customerId, service_id, start_time, notes || '', cancellation_code]
     );
 
-    // 4. Fetch service details for email
     const serviceDetails = await pool.query('SELECT name FROM services WHERE id = $1', [service_id]);
     const serviceName = serviceDetails.rows[0]?.name || 'Salon Service';
 
-    // 5. Send Email Notifications
     const emailOptionsClient = {
       from: `"Le Salon NYC" <${process.env.SMTP_EMAIL}>`,
       to: email,
       subject: `Appointment Confirmation - Le Salon NYC (${cancellation_code})`,
       html: `
-        <div style="font-family: Arial, sans-serif; background-color: #000; color: #fff; padding: 20px; border-radius: 8px;">
-          <h2 style="color: #fbbf24;">Le Salon NYC</h2>
+        <div style="font-family: Arial, sans-serif; background-color: #faf8f5; color: #1a1a1a; padding: 24px; border-radius: 8px; border: 1px solid #e5e0d8;">
+          <h2 style="color: #b58900; font-family: Georgia, serif;">Le Salon NYC</h2>
           <p>Dear ${full_name},</p>
-          <p>Your appointment has been successfully scheduled!</p>
-          <ul>
+          <p>Your appointment has been confirmed!</p>
+          <ul style="line-height: 1.8;">
             <li><strong>Service:</strong> ${serviceName}</li>
             <li><strong>Date & Time:</strong> ${new Date(start_time).toLocaleString()}</li>
-            <li><strong>Location:</strong> 310 East 44th St, Manhattan</li>
+            <li><strong>Location:</strong> 310 East 44th St, Manhattan, NY</li>
             <li><strong>Cancellation Code:</strong> ${cancellation_code}</li>
           </ul>
           <p>Thank you for choosing Le Salon NYC.</p>
