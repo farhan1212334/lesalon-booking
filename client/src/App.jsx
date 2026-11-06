@@ -144,7 +144,6 @@ export default function App() {
       {/* STEP 1: SERVICE & DATETIME */}
       {step === 1 && (
         <div>
-          {/* Categories */}
           <div className="category-tabs">
             {categories.map((cat) => (
               <button
@@ -157,7 +156,6 @@ export default function App() {
             ))}
           </div>
 
-          {/* Service Grid */}
           {loadingServices ? (
             <div className="salon-card-box" style={{ textAlign: 'center', padding: '40px' }}>
               <p style={{ color: 'var(--text-muted)' }}>Loading service catalog from backend...</p>
@@ -189,7 +187,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Date & Time Picker Box */}
           {selectedService && (
             <div className="salon-card-box">
               <h3 style={{ color: 'var(--accent-gold)', marginBottom: '16px', fontSize: '0.875rem', textTransform: 'uppercase' }}>
@@ -324,7 +321,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Footer */}
       <footer className="salon-footer">
         <p>© {new Date().getFullYear()} Le Salon NYC. 310 East 44th St, Manhattan, NY 10017.</p>
       </footer>

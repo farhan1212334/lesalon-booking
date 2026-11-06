@@ -1,6 +1,4 @@
-/* LE SALON NYC - Standalone Fail-Safe Luxury Theme */
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap');
-
+/* LE SALON NYC - Standalone Luxury Dark Theme */
 :root {
   --bg-dark: #0a0a0a;
   --card-bg: #141414;
@@ -30,7 +28,6 @@ h1, h2, h3 {
   font-family: 'Playfair Display', Georgia, serif !important;
 }
 
-/* Layout Container */
 .salon-container {
   max-width: 860px;
   margin: 0 auto;
@@ -40,7 +37,6 @@ h1, h2, h3 {
   flex-direction: column;
 }
 
-/* Header */
 .salon-header {
   text-align: center;
   padding-bottom: 20px;
@@ -62,7 +58,6 @@ h1, h2, h3 {
   margin-top: 4px;
 }
 
-/* Progress Tracker */
 .steps-bar {
   display: flex;
   align-items: center;
@@ -109,7 +104,6 @@ h1, h2, h3 {
   background-color: var(--card-border);
 }
 
-/* Categories */
 .category-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -137,7 +131,6 @@ h1, h2, h3 {
   border-color: var(--accent-gold);
 }
 
-/* Service Grid */
 .services-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -218,7 +211,6 @@ h1, h2, h3 {
   font-weight: bold;
 }
 
-/* Card Box & Forms */
 .salon-card-box {
   background-color: var(--card-bg);
   border: 1px solid var(--card-border);
@@ -267,7 +259,6 @@ h1, h2, h3 {
   }
 }
 
-/* Buttons */
 .btn-gold {
   width: 100%;
   background-color: var(--accent-gold);
@@ -302,7 +293,6 @@ h1, h2, h3 {
   text-transform: uppercase;
 }
 
-/* Alerts & Confirmation */
 .alert-error {
   background-color: #450a0a;
   border: 1px solid #991b1b;
