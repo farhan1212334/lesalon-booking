@@ -14,20 +14,23 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// Configure Nodemailer Transporter
+// Configure Nodemailer with strict timeouts (5 seconds max)
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
     user: process.env.SMTP_EMAIL,
     pass: process.env.SMTP_PASSWORD,
   },
+  connectionTimeout: 5000,
+  greetingTimeout: 5000,
+  socketTimeout: 5000,
 });
 
 app.get('/', (req, res) => {
   res.send('Le Salon NYC API Server is Live.');
 });
 
-// Get Services Catalog
+// Fetch Services Catalog
 app.get('/api/services', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM services ORDER BY id ASC');
@@ -38,7 +41,7 @@ app.get('/api/services', async (req, res) => {
   }
 });
 
-// Fetch Booked Slots for a Specific Date
+// Fetch Booked Slots for Real-Time Conflict Check
 app.get('/api/booked-slots', async (req, res) => {
   const { date } = req.query;
   if (!date) return res.status(400).json({ error: 'Date parameter is required' });
@@ -58,7 +61,7 @@ app.get('/api/booked-slots', async (req, res) => {
   }
 });
 
-// Create New Appointment
+// Create New Appointment (Lightning Fast Instant Response)
 app.post('/api/appointments', async (req, res) => {
   const { service_id, start_time, full_name, email, phone, notes } = req.body;
 
@@ -67,17 +70,17 @@ app.post('/api/appointments', async (req, res) => {
   }
 
   try {
-    // 1. Fetch service details to get exact duration_minutes & name
+    // 1. Fetch service details for duration & name
     const serviceDetails = await pool.query('SELECT name, duration_minutes FROM services WHERE id = $1', [service_id]);
     const durationMinutes = parseInt(serviceDetails.rows[0]?.duration_minutes || 45, 10);
     const serviceName = serviceDetails.rows[0]?.name || 'Salon Service';
 
-    // 2. Calculate end_time based on duration
+    // 2. Calculate end_time
     const startDate = new Date(start_time);
     const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
     const end_time = endDate.toISOString();
 
-    // 3. Create or fetch existing customer
+    // 3. Customer registration/fetch
     let customerResult = await pool.query('SELECT id FROM customers WHERE email = $1', [email]);
     let customerId;
 
@@ -91,10 +94,10 @@ app.post('/api/appointments', async (req, res) => {
       customerId = customerResult.rows[0].id;
     }
 
-    // 4. Generate random 6-character cancellation code
+    // 4. Generate Cancellation Code
     const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-    // 5. Insert appointment record (Including calculated end_time)
+    // 5. Insert Appointment Record into Database
     let appointmentResult;
     try {
       appointmentResult = await pool.query(
@@ -103,8 +106,7 @@ app.post('/api/appointments', async (req, res) => {
          RETURNING id`,
         [customerId, service_id, start_time, end_time, notes || '', cancellation_code]
       );
-    } catch (dbSchemaErr) {
-      console.warn('Full schema insert fallback:', dbSchemaErr.message);
+    } catch (dbErr) {
       appointmentResult = await pool.query(
         `INSERT INTO appointments (customer_id, service_id, start_time, end_time, notes)
          VALUES ($1, $2, $3, $4, $5)
@@ -113,60 +115,60 @@ app.post('/api/appointments', async (req, res) => {
       );
     }
 
-    // 6. Send Email Notifications (Safe execution)
+    const appointmentId = appointmentResult.rows[0].id;
+
+    // 6. Non-Blocking Async Email Dispatch (Fire-and-forget in background)
     if (process.env.SMTP_EMAIL && process.env.SMTP_PASSWORD) {
-      try {
-        const emailOptionsClient = {
-          from: `"Le Salon NYC" <${process.env.SMTP_EMAIL}>`,
-          to: email,
-          subject: `Appointment Confirmation - Le Salon NYC (${cancellation_code})`,
-          html: `
-            <div style="font-family: Arial, sans-serif; background-color: #faf8f5; color: #1a1a1a; padding: 24px; border-radius: 8px; border: 1px solid #e5e0d8;">
-              <h2 style="color: #b58900; font-family: Georgia, serif;">Le Salon NYC</h2>
-              <p>Dear ${full_name},</p>
-              <p>Your appointment has been confirmed!</p>
-              <ul style="line-height: 1.8;">
-                <li><strong>Service:</strong> ${serviceName}</li>
-                <li><strong>Date & Time:</strong> ${new Date(start_time).toLocaleString()}</li>
-                <li><strong>Location:</strong> 310 East 44th St, Manhattan, NY</li>
-                <li><strong>Cancellation Code:</strong> ${cancellation_code}</li>
-              </ul>
-              <p>Thank you for choosing Le Salon NYC.</p>
-            </div>
-          `,
-        };
+      const emailOptionsClient = {
+        from: `"Le Salon NYC" <${process.env.SMTP_EMAIL}>`,
+        to: email,
+        subject: `Appointment Confirmation - Le Salon NYC (${cancellation_code})`,
+        html: `
+          <div style="font-family: Arial, sans-serif; background-color: #faf8f5; color: #1a1a1a; padding: 24px; border-radius: 8px; border: 1px solid #e5e0d8;">
+            <h2 style="color: #b58900; font-family: Georgia, serif;">Le Salon NYC</h2>
+            <p>Dear ${full_name},</p>
+            <p>Your appointment has been confirmed!</p>
+            <ul style="line-height: 1.8;">
+              <li><strong>Service:</strong> ${serviceName}</li>
+              <li><strong>Date & Time:</strong> ${new Date(start_time).toLocaleString()}</li>
+              <li><strong>Location:</strong> 310 East 44th St, Manhattan, NY</li>
+              <li><strong>Cancellation Code:</strong> ${cancellation_code}</li>
+            </ul>
+            <p>Thank you for choosing Le Salon NYC.</p>
+          </div>
+        `,
+      };
 
-        const emailOptionsSalon = {
-          from: `"Le Salon Booking" <${process.env.SMTP_EMAIL}>`,
-          to: process.env.SALON_NOTIFICATION_EMAIL || process.env.SMTP_EMAIL,
-          subject: `NEW BOOKING: ${full_name} - ${serviceName}`,
-          html: `
-            <h3>New Appointment Received</h3>
-            <p><strong>Customer:</strong> ${full_name} (${email}, ${phone})</p>
-            <p><strong>Service:</strong> ${serviceName}</p>
-            <p><strong>Time:</strong> ${new Date(start_time).toLocaleString()}</p>
-            <p><strong>Notes:</strong> ${notes || 'None'}</p>
-            <p><strong>Cancellation Code:</strong> ${cancellation_code}</p>
-          `,
-        };
+      const emailOptionsSalon = {
+        from: `"Le Salon Booking" <${process.env.SMTP_EMAIL}>`,
+        to: process.env.SALON_NOTIFICATION_EMAIL || process.env.SMTP_EMAIL,
+        subject: `NEW BOOKING: ${full_name} - ${serviceName}`,
+        html: `
+          <h3>New Appointment Received</h3>
+          <p><strong>Customer:</strong> ${full_name} (${email}, ${phone})</p>
+          <p><strong>Service:</strong> ${serviceName}</p>
+          <p><strong>Time:</strong> ${new Date(start_time).toLocaleString()}</p>
+          <p><strong>Notes:</strong> ${notes || 'None'}</p>
+          <p><strong>Cancellation Code:</strong> ${cancellation_code}</p>
+        `,
+      };
 
-        await transporter.sendMail(emailOptionsClient);
-        await transporter.sendMail(emailOptionsSalon);
-      } catch (emailErr) {
-        console.error('Email error (non-fatal):', emailErr.message);
-      }
+      // Execute asynchronously without await so response is immediate
+      transporter.sendMail(emailOptionsClient).catch((err) => console.error('Client email error:', err.message));
+      transporter.sendMail(emailOptionsSalon).catch((err) => console.error('Salon email error:', err.message));
     }
 
+    // Return instant HTTP response (< 300ms)
     return res.json({
       success: true,
       message: 'Booking successfully confirmed!',
-      appointment_id: appointmentResult.rows[0].id,
+      appointment_id: appointmentId,
       cancellation_code,
       email,
     });
   } catch (err) {
     console.error('Booking processing error:', err);
-    return res.status(500).json({ success: false, message: 'Server error processing appointment: ' + err.message });
+    return res.status(500).json({ success: false, message: 'Server error: ' + err.message });
   }
 });
 

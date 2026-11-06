@@ -34,7 +34,6 @@ export default function App() {
     fetchServices();
   }, []);
 
-  // Fetch booked slots whenever date changes
   useEffect(() => {
     if (selectedDate) {
       fetchBookedSlots(selectedDate);
@@ -77,11 +76,17 @@ export default function App() {
     ? services
     : services.filter((s) => (s.category || 'General') === selectedCategory);
 
-  // Dynamic Time Slot Calculator based on Service Duration
+  // Automatic Step Transition on Service Select
+  const handleServiceSelect = (service) => {
+    setSelectedService(service);
+    setSelectedTimeSlot(null);
+    setStep(2); // Instantly moves to Calendar page
+  };
+
+  // Dynamic Time Slot Calculation
   const generateTimeSlots = () => {
     if (!selectedDate || !selectedService) return [];
     
-    // Salon Hours: Mon-Fri 10 AM - 8 PM (10:00 - 20:00), Sat 10 AM - 6 PM (10:00 - 18:00), Sun Closed
     const [year, month, day] = selectedDate.split('-').map(Number);
     const dateObj = new Date(year, month - 1, day);
     const dayOfWeek = dateObj.getDay();
@@ -100,7 +105,6 @@ export default function App() {
       const slotStart = currentMins;
       const slotEnd = currentMins + duration;
 
-      // Check real-time collision with booked appointments
       const isBooked = bookedAppointments.some((b) => {
         const bDate = new Date(b.start_time);
         const bStartMins = bDate.getHours() * 60 + bDate.getMinutes();
@@ -130,11 +134,6 @@ export default function App() {
       currentMins += duration;
     }
     return slots;
-  };
-
-  const handleServiceSelect = (service) => {
-    setSelectedService(service);
-    setSelectedTimeSlot(null);
   };
 
   const handleSubmitBooking = async (e) => {
@@ -198,7 +197,6 @@ export default function App() {
     return service.price_mode === 'starting' ? `Starting at ${priceStr}` : priceStr;
   };
 
-  // Calendar Helper Functions
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
   const firstDayIndex = new Date(calYear, calMonth, 1).getDay();
   const monthNames = [
@@ -234,7 +232,7 @@ export default function App() {
         <p>310 East 44th St, Manhattan • (212) 949-6693 • Online Reservations</p>
       </header>
 
-      {/* Progress Tracker Bar */}
+      {/* Progress Bar */}
       <div className="steps-bar">
         <div className={`step-item ${step >= 1 ? 'active' : ''}`}>
           <span className="step-number">1</span> Select Service
@@ -295,24 +293,12 @@ export default function App() {
                       <p className="service-meta">⏱ {service.duration_minutes} Mins • {service.category || 'General'}</p>
                     </div>
                     <div className="service-footer">
-                      <span>{isSelected ? 'Selected' : 'Click to select'}</span>
+                      <span>Click to select & continue</span>
                       <div className="check-circle">{isSelected ? '✓' : ''}</div>
                     </div>
                   </div>
                 );
               })}
-            </div>
-          )}
-
-          {/* Smooth transition button */}
-          {selectedService && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
-              <button
-                onClick={() => setStep(2)}
-                className="btn-gold"
-              >
-                Next: Select Date & Time →
-              </button>
             </div>
           )}
         </div>
@@ -329,7 +315,7 @@ export default function App() {
               </p>
             </div>
             <button onClick={() => setStep(1)} className="btn-secondary">
-              Change Service
+              ← Change Service
             </button>
           </div>
 
@@ -423,7 +409,7 @@ export default function App() {
         </div>
       )}
 
-      {/* STEP 3: CLIENT DETAILS & CONFIRMATION */}
+      {/* STEP 3: CLIENT DETAILS FORM */}
       {step === 3 && !bookingResult && selectedService && selectedDate && selectedTimeSlot && (
         <div className="salon-card-box">
           <h2 style={{ fontSize: '1.4rem', marginBottom: '8px' }}>Client Details</h2>
@@ -495,7 +481,7 @@ export default function App() {
       {/* CONFIRMATION SCREEN */}
       {bookingResult && (
         <div className="salon-card-box" style={{ textAlign: 'center', padding: '36px' }}>
-          <div style={{ width: '60px', height: '60px', backgroundColor: '#FDF9EE', border: '2px solid var(--gold-accent)', color: 'var(--gold-accent)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyCenter: 'center', fontSize: '1.8rem', margin: '0 auto 16px auto', lineHeight: '60px' }}>
+          <div style={{ width: '60px', height: '60px', backgroundColor: '#FDF9EE', border: '2px solid var(--gold-accent)', color: 'var(--gold-accent)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem', margin: '0 auto 16px auto', lineHeight: '60px' }}>
             ✓
           </div>
           <h2 style={{ fontSize: '1.6rem', color: 'var(--gold-accent)', marginBottom: '8px' }}>Appointment Confirmed!</h2>
