@@ -1,15 +1,12 @@
 import React, { useState, useEffect } from 'react';
 
-// Live Render Backend API Endpoint
 const API_BASE_URL = 'https://lesalon-api.onrender.com';
 
 export default function App() {
-  // Data States
   const [services, setServices] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedService, setSelectedService] = useState(null);
   
-  // Form States
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [fullName, setFullName] = useState('');
@@ -17,14 +14,12 @@ export default function App() {
   const [phone, setPhone] = useState('');
   const [notes, setNotes] = useState('');
 
-  // UI & Workflow States
-  const [step, setStep] = useState(1); // Step 1: Service & Time | Step 2: Client Info | Step 3: Success
+  const [step, setStep] = useState(1);
   const [loadingServices, setLoadingServices] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [bookingResult, setBookingResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Fetch Service Catalog on Component Mount
   useEffect(() => {
     fetchServices();
   }, []);
@@ -35,27 +30,25 @@ export default function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/services`);
       if (!response.ok) {
-        throw new Error(`Server responded with status: ${response.status}`);
+        throw new Error(`Server status: ${response.status}`);
       }
       const data = await response.json();
       setServices(data);
     } catch (err) {
       console.error('Error fetching services:', err);
       setErrorMessage(
-        'The backend server is waking up (Render free tier takes ~30 seconds on cold start). Please click Retry below.'
+        'Connecting to live backend server. Render free tier takes ~30 seconds on cold start—please click Retry.'
       );
     } finally {
       setLoadingServices(false);
     }
   };
 
-  // Filter Categories
   const categories = ['All', ...new Set(services.map((s) => s.category || 'General'))];
   const filteredServices = selectedCategory === 'All'
     ? services
     : services.filter((s) => (s.category || 'General') === selectedCategory);
 
-  // Handle Form Submission
   const handleSubmitBooking = async (e) => {
     e.preventDefault();
     if (!selectedService || !date || !time || !fullName || !email || !phone) {
@@ -86,7 +79,7 @@ export default function App() {
 
       if (res.ok && data.success) {
         setBookingResult(data);
-        setStep(3); // Move to Confirmation screen
+        setStep(3);
       } else {
         setErrorMessage(data.message || 'Failed to confirm booking. Please try again.');
       }
@@ -98,7 +91,6 @@ export default function App() {
     }
   };
 
-  // Reset Booking Form
   const handleReset = () => {
     setSelectedService(null);
     setDate('');
@@ -112,7 +104,6 @@ export default function App() {
     setStep(1);
   };
 
-  // Format Currency / Price Mode
   const formatPrice = (service) => {
     if (service.price_mode === 'consultation' || !service.price) {
       return 'Consultation Required';
@@ -124,7 +115,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans flex flex-col justify-between selection:bg-amber-500 selection:text-neutral-950">
       
-      {/* Top Luxury Header */}
       <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur sticky top-0 z-50 py-6 px-4">
         <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
           <div>
@@ -139,47 +129,39 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content Container */}
       <main className="max-w-4xl mx-auto w-full px-4 py-8 flex-grow">
         
-        {/* Progress Tracker Bar */}
         <div className="flex items-center justify-center mb-8 gap-4 text-xs font-semibold uppercase tracking-wider">
           <div className={`flex items-center gap-2 ${step >= 1 ? 'text-amber-400' : 'text-neutral-600'}`}>
-            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${step >= 1 ? 'bg-amber-400 text-neutral-950' : 'bg-neutral-800 text-neutral-400'}`}>1</span>
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${step >= 1 ? 'bg-amber-400 text-neutral-950 font-bold' : 'bg-neutral-800 text-neutral-400'}`}>1</span>
             Select Service & Time
           </div>
           <div className="w-8 h-[1px] bg-neutral-800"></div>
           <div className={`flex items-center gap-2 ${step >= 2 ? 'text-amber-400' : 'text-neutral-600'}`}>
-            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${step >= 2 ? 'bg-amber-400 text-neutral-950' : 'bg-neutral-800 text-neutral-400'}`}>2</span>
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${step >= 2 ? 'bg-amber-400 text-neutral-950 font-bold' : 'bg-neutral-800 text-neutral-400'}`}>2</span>
             Your Details
           </div>
           <div className="w-8 h-[1px] bg-neutral-800"></div>
           <div className={`flex items-center gap-2 ${step === 3 ? 'text-amber-400' : 'text-neutral-600'}`}>
-            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${step === 3 ? 'bg-amber-400 text-neutral-950' : 'bg-neutral-800 text-neutral-400'}`}>3</span>
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${step === 3 ? 'bg-amber-400 text-neutral-950 font-bold' : 'bg-neutral-800 text-neutral-400'}`}>3</span>
             Confirmation
           </div>
         </div>
 
-        {/* Global Error Alert */}
         {errorMessage && (
           <div className="mb-6 p-4 bg-red-950/80 border border-red-800 rounded-xl text-red-200 text-sm flex flex-col sm:flex-row items-center justify-between gap-3">
             <span>{errorMessage}</span>
-            {loadingServices && (
-              <button
-                onClick={fetchServices}
-                className="bg-red-800 hover:bg-red-700 text-white px-3 py-1 rounded text-xs tracking-wider uppercase font-semibold"
-              >
-                Retry
-              </button>
-            )}
+            <button
+              onClick={fetchServices}
+              className="bg-red-800 hover:bg-red-700 text-white px-4 py-1.5 rounded-lg text-xs tracking-wider uppercase font-semibold whitespace-nowrap"
+            >
+              Retry Connection
+            </button>
           </div>
         )}
 
-        {/* STEP 1: SERVICE & DATETIME SELECTION */}
         {step === 1 && (
           <div className="space-y-6">
-            
-            {/* Category Filter Tabs */}
             <div className="flex flex-wrap items-center justify-center gap-2 pb-2">
               {categories.map((cat) => (
                 <button
@@ -196,7 +178,6 @@ export default function App() {
               ))}
             </div>
 
-            {/* Service Grid */}
             {loadingServices ? (
               <div className="py-16 text-center space-y-3 bg-neutral-900/50 border border-neutral-800 rounded-2xl">
                 <div className="inline-block w-8 h-8 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
@@ -240,9 +221,8 @@ export default function App() {
               </div>
             )}
 
-            {/* Date & Time Picker Card */}
             {selectedService && (
-              <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl space-y-4 animate-fade-in">
+              <div className="bg-neutral-900 border border-neutral-800 p-6 rounded-2xl space-y-4">
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-amber-400">
                   Choose Appointment Date & Time
                 </h3>
@@ -284,7 +264,6 @@ export default function App() {
           </div>
         )}
 
-        {/* STEP 2: CLIENT INFORMATION FORM */}
         {step === 2 && selectedService && (
           <div className="max-w-2xl mx-auto bg-neutral-900 border border-neutral-800 rounded-2xl p-6 sm:p-8 space-y-6">
             <div className="border-b border-neutral-800 pb-4">
@@ -363,7 +342,6 @@ export default function App() {
           </div>
         )}
 
-        {/* STEP 3: SUCCESS CONFIRMATION SCREEN */}
         {step === 3 && bookingResult && (
           <div className="max-w-2xl mx-auto bg-neutral-900 border border-emerald-900/60 rounded-2xl p-8 text-center space-y-6 shadow-2xl">
             <div className="w-16 h-16 bg-emerald-950 border border-emerald-500 text-emerald-400 rounded-full flex items-center justify-center text-2xl mx-auto">
@@ -407,7 +385,6 @@ export default function App() {
 
       </main>
 
-      {/* Luxury Footer */}
       <footer className="border-t border-neutral-800 py-6 text-center text-xs text-neutral-500">
         <p>© {new Date().getFullYear()} Le Salon NYC. 310 East 44th St, Manhattan, NY 10017.</p>
         <p className="mt-1 text-neutral-600">Powered by Neon PostgreSQL & Render API</p>
