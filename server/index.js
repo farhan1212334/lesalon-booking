@@ -18,12 +18,32 @@ const pool = new Pool({
   },
 });
 
-// Auto-repair DB schema on server start (Ensures missing columns are added automatically)
+// Auto-repair DB schema on server start (Ensures all table columns exist)
 const initDb = async () => {
   try {
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS appointments (
+        id SERIAL PRIMARY KEY,
+        service_id INTEGER,
+        service_name VARCHAR(255),
+        duration_minutes INTEGER DEFAULT 45,
+        start_time TIMESTAMPTZ,
+        full_name VARCHAR(255),
+        email VARCHAR(255),
+        phone VARCHAR(50),
+        notes TEXT,
+        cancellation_code VARCHAR(50),
+        status VARCHAR(50) DEFAULT 'confirmed',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
       ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_name VARCHAR(255);
       ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_minutes INTEGER DEFAULT 45;
+      ALTER TABLE appointments ADD COLUMN IF NOT EXISTS full_name VARCHAR(255);
+      ALTER TABLE appointments ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+      ALTER TABLE appointments ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+      ALTER TABLE appointments ADD COLUMN IF NOT EXISTS notes TEXT;
+      ALTER TABLE appointments ADD COLUMN IF NOT EXISTS cancellation_code VARCHAR(50);
+      ALTER TABLE appointments ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'confirmed';
       ALTER TABLE services ADD COLUMN IF NOT EXISTS duration_minutes INTEGER DEFAULT 45;
     `);
     console.log('Database schema verified & updated successfully.');
