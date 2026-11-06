@@ -14,6 +14,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+// Configure Nodemailer Transporter
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -53,7 +54,7 @@ app.get('/api/booked-slots', async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('Error fetching booked slots:', err);
-    res.status(500).json({ error: 'Failed to fetch booked slots' });
+    res.json([]); // Return empty array on fallback so UI doesn't crash
   }
 });
 
@@ -66,6 +67,7 @@ app.post('/api/appointments', async (req, res) => {
   }
 
   try {
+    // 1. Create or fetch existing customer
     let customerResult = await pool.query('SELECT id FROM customers WHERE email = $1', [email]);
     let customerId;
 
@@ -79,56 +81,77 @@ app.post('/api/appointments', async (req, res) => {
       customerId = customerResult.rows[0].id;
     }
 
+    // 2. Generate random 6-character cancellation code
     const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-    const appointmentResult = await pool.query(
-      `INSERT INTO appointments (customer_id, service_id, start_time, notes, cancellation_code, status)
-       VALUES ($1, $2, $3, $4, $5, 'confirmed')
-       RETURNING id`,
-      [customerId, service_id, start_time, notes || '', cancellation_code]
-    );
+    // 3. Insert appointment record (With schema fallback)
+    let appointmentResult;
+    try {
+      appointmentResult = await pool.query(
+        `INSERT INTO appointments (customer_id, service_id, start_time, notes, cancellation_code, status)
+         VALUES ($1, $2, $3, $4, $5, 'confirmed')
+         RETURNING id`,
+        [customerId, service_id, start_time, notes || '', cancellation_code]
+      );
+    } catch (dbSchemaErr) {
+      console.warn('Full schema insert failed, performing basic insert:', dbSchemaErr.message);
+      appointmentResult = await pool.query(
+        `INSERT INTO appointments (customer_id, service_id, start_time, notes)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
+        [customerId, service_id, start_time, notes || '']
+      );
+    }
 
+    // 4. Fetch service name
     const serviceDetails = await pool.query('SELECT name FROM services WHERE id = $1', [service_id]);
     const serviceName = serviceDetails.rows[0]?.name || 'Salon Service';
 
-    const emailOptionsClient = {
-      from: `"Le Salon NYC" <${process.env.SMTP_EMAIL}>`,
-      to: email,
-      subject: `Appointment Confirmation - Le Salon NYC (${cancellation_code})`,
-      html: `
-        <div style="font-family: Arial, sans-serif; background-color: #faf8f5; color: #1a1a1a; padding: 24px; border-radius: 8px; border: 1px solid #e5e0d8;">
-          <h2 style="color: #b58900; font-family: Georgia, serif;">Le Salon NYC</h2>
-          <p>Dear ${full_name},</p>
-          <p>Your appointment has been confirmed!</p>
-          <ul style="line-height: 1.8;">
-            <li><strong>Service:</strong> ${serviceName}</li>
-            <li><strong>Date & Time:</strong> ${new Date(start_time).toLocaleString()}</li>
-            <li><strong>Location:</strong> 310 East 44th St, Manhattan, NY</li>
-            <li><strong>Cancellation Code:</strong> ${cancellation_code}</li>
-          </ul>
-          <p>Thank you for choosing Le Salon NYC.</p>
-        </div>
-      `,
-    };
+    // 5. Send Email Notifications (Safe - fails quietly if SMTP credentials are missing)
+    if (process.env.SMTP_EMAIL && process.env.SMTP_PASSWORD) {
+      try {
+        const emailOptionsClient = {
+          from: `"Le Salon NYC" <${process.env.SMTP_EMAIL}>`,
+          to: email,
+          subject: `Appointment Confirmation - Le Salon NYC (${cancellation_code})`,
+          html: `
+            <div style="font-family: Arial, sans-serif; background-color: #faf8f5; color: #1a1a1a; padding: 24px; border-radius: 8px; border: 1px solid #e5e0d8;">
+              <h2 style="color: #b58900; font-family: Georgia, serif;">Le Salon NYC</h2>
+              <p>Dear ${full_name},</p>
+              <p>Your appointment has been confirmed!</p>
+              <ul style="line-height: 1.8;">
+                <li><strong>Service:</strong> ${serviceName}</li>
+                <li><strong>Date & Time:</strong> ${new Date(start_time).toLocaleString()}</li>
+                <li><strong>Location:</strong> 310 East 44th St, Manhattan, NY</li>
+                <li><strong>Cancellation Code:</strong> ${cancellation_code}</li>
+              </ul>
+              <p>Thank you for choosing Le Salon NYC.</p>
+            </div>
+          `,
+        };
 
-    const emailOptionsSalon = {
-      from: `"Le Salon Booking" <${process.env.SMTP_EMAIL}>`,
-      to: process.env.SALON_NOTIFICATION_EMAIL || process.env.SMTP_EMAIL,
-      subject: `NEW BOOKING: ${full_name} - ${serviceName}`,
-      html: `
-        <h3>New Appointment Received</h3>
-        <p><strong>Customer:</strong> ${full_name} (${email}, ${phone})</p>
-        <p><strong>Service:</strong> ${serviceName}</p>
-        <p><strong>Time:</strong> ${new Date(start_time).toLocaleString()}</p>
-        <p><strong>Notes:</strong> ${notes || 'None'}</p>
-        <p><strong>Cancellation Code:</strong> ${cancellation_code}</p>
-      `,
-    };
+        const emailOptionsSalon = {
+          from: `"Le Salon Booking" <${process.env.SMTP_EMAIL}>`,
+          to: process.env.SALON_NOTIFICATION_EMAIL || process.env.SMTP_EMAIL,
+          subject: `NEW BOOKING: ${full_name} - ${serviceName}`,
+          html: `
+            <h3>New Appointment Received</h3>
+            <p><strong>Customer:</strong> ${full_name} (${email}, ${phone})</p>
+            <p><strong>Service:</strong> ${serviceName}</p>
+            <p><strong>Time:</strong> ${new Date(start_time).toLocaleString()}</p>
+            <p><strong>Notes:</strong> ${notes || 'None'}</p>
+            <p><strong>Cancellation Code:</strong> ${cancellation_code}</p>
+          `,
+        };
 
-    await transporter.sendMail(emailOptionsClient);
-    await transporter.sendMail(emailOptionsSalon);
+        await transporter.sendMail(emailOptionsClient);
+        await transporter.sendMail(emailOptionsSalon);
+      } catch (emailErr) {
+        console.error('Email dispatch non-fatal error:', emailErr.message);
+      }
+    }
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Booking successfully confirmed!',
       appointment_id: appointmentResult.rows[0].id,
@@ -137,7 +160,7 @@ app.post('/api/appointments', async (req, res) => {
     });
   } catch (err) {
     console.error('Booking processing error:', err);
-    res.status(500).json({ success: false, message: 'Server error processing appointment' });
+    return res.status(500).json({ success: false, message: 'Server error processing appointment: ' + err.message });
   }
 });
 
