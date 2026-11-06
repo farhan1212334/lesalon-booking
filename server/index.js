@@ -14,31 +14,33 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// Auto-sanitize environment variables (strip spaces from App Passwords)
-const SMTP_USER = (process.env.SMTP_EMAIL || 'farhanumar442@gmail.com').trim();
+// Primary email credentials
+const SMTP_USER = (process.env.SMTP_EMAIL || 'umarfarhan442@gmail.com').trim();
 const rawPass = process.env.SMTP_PASSWORD || '';
 const SMTP_PASS = rawPass.replace(/\s+/g, '').trim(); 
-const SALON_ADMIN_EMAIL = (process.env.SALON_NOTIFICATION_EMAIL || 'farhanumar442@gmail.com').trim();
+const SALON_ADMIN_EMAIL = (process.env.SALON_NOTIFICATION_EMAIL || 'umarfarhan442@gmail.com').trim();
 
-// Configure Nodemailer for Render SSL compatibility (Port 465)
+// Nodemailer Transporter on Port 587 + STARTTLS + Forced IPv4 (Fixes Render ETIMEDOUT)
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // SSL
+  port: 587,
+  secure: false, // STARTTLS
+  requireTLS: true,
   auth: {
     user: SMTP_USER,
     pass: SMTP_PASS,
   },
   tls: {
     rejectUnauthorized: false
-  }
+  },
+  family: 4 // Force IPv4 connection to prevent network socket timeout
 });
 
 app.get('/', (req, res) => {
   res.send('Le Salon NYC API Server is Live.');
 });
 
-// Live Email Diagnostic Endpoint (Open in browser to verify setup)
+// Diagnostic Endpoint for umarfarhan442@gmail.com
 app.get('/api/test-email', async (req, res) => {
   if (!SMTP_PASS) {
     return res.status(500).json({
@@ -56,8 +58,8 @@ app.get('/api/test-email', async (req, res) => {
       to: SALON_ADMIN_EMAIL,
       subject: 'Le Salon NYC - Diagnostic Email Test',
       html: `<div style="font-family: Arial; padding: 20px; border: 1px solid #c59b27; border-radius: 8px;">
-              <h2>Email System is 100% Operational!</h2>
-              <p>This test email confirms that <strong>farhanumar442@gmail.com</strong> is connected and sending messages properly from Render.</p>
+              <h2>Email System Connected!</h2>
+              <p>Diagnostic test email confirmed for <strong>umarfarhan442@gmail.com</strong>.</p>
              </div>`
     });
 
@@ -72,7 +74,7 @@ app.get('/api/test-email', async (req, res) => {
       success: false,
       error: err.message,
       code: err.code,
-      hint: 'If error says 535 / Invalid login, double-check that 2-Step Verification is enabled on your Google account and you created a 16-character App Password.'
+      hint: 'Ensure 2-Step Verification is enabled on umarfarhan442@gmail.com and a 16-character Google App Password is saved in Render.'
     });
   }
 });
@@ -88,7 +90,7 @@ app.get('/api/services', async (req, res) => {
   }
 });
 
-// Fetch Booked Slots for Real-Time Conflict Checking
+// Fetch Booked Slots
 app.get('/api/booked-slots', async (req, res) => {
   const { date } = req.query;
   if (!date) return res.status(400).json({ error: 'Date parameter is required' });
@@ -117,17 +119,14 @@ app.post('/api/appointments', async (req, res) => {
   }
 
   try {
-    // 1. Fetch service details
     const serviceDetails = await pool.query('SELECT name, duration_minutes FROM services WHERE id = $1', [service_id]);
     const durationMinutes = parseInt(serviceDetails.rows[0]?.duration_minutes || 45, 10);
     const serviceName = serviceDetails.rows[0]?.name || 'Salon Service';
 
-    // 2. Calculate end_time
     const startDate = new Date(start_time);
     const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
     const end_time = endDate.toISOString();
 
-    // 3. Customer lookup/create
     let customerResult = await pool.query('SELECT id FROM customers WHERE email = $1', [email]);
     let customerId;
 
@@ -141,10 +140,8 @@ app.post('/api/appointments', async (req, res) => {
       customerId = customerResult.rows[0].id;
     }
 
-    // 4. Generate Cancellation Code
     const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-    // 5. Insert Appointment Record
     let appointmentResult;
     try {
       appointmentResult = await pool.query(
@@ -172,7 +169,7 @@ app.post('/api/appointments', async (req, res) => {
       minute: '2-digit',
     });
 
-    // 6. EMAIL 1: Automated Client Confirmation Email (From Le Salon NYC)
+    // EMAIL 1: Client confirmation email sent from umarfarhan442@gmail.com
     const emailOptionsClient = {
       from: `"Le Salon NYC" <${SMTP_USER}>`,
       to: email.trim(),
@@ -202,7 +199,7 @@ app.post('/api/appointments', async (req, res) => {
       `,
     };
 
-    // 7. EMAIL 2: Salon Admin Notification Sent to YOU (farhanumar442@gmail.com)
+    // EMAIL 2: Admin alert notification sent directly to umarfarhan442@gmail.com
     const emailOptionsAdmin = {
       from: `"Le Salon Booking System" <${SMTP_USER}>`,
       to: SALON_ADMIN_EMAIL,
@@ -225,7 +222,6 @@ app.post('/api/appointments', async (req, res) => {
       `,
     };
 
-    // Dispatch emails with full console tracking on Render
     if (SMTP_PASS) {
       transporter.sendMail(emailOptionsClient)
         .then(info => console.log('Client email sent:', info.messageId))
@@ -234,8 +230,6 @@ app.post('/api/appointments', async (req, res) => {
       transporter.sendMail(emailOptionsAdmin)
         .then(info => console.log('Admin email sent:', info.messageId))
         .catch(err => console.error('Admin email ERROR:', err.message));
-    } else {
-      console.warn('SMTP_PASSWORD environment variable is missing on Render. Email dispatch skipped.');
     }
 
     return res.json({
