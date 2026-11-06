@@ -23,6 +23,7 @@ const DEFAULT_SERVICES = [
 ];
 
 export default function App() {
+  const [viewMode, setViewMode] = useState('booking'); // 'booking' | 'cancel'
   const [step, setStep] = useState(1);
   const [services, setServices] = useState(DEFAULT_SERVICES);
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -40,6 +41,13 @@ export default function App() {
   const [submitting, setSubmitting] = useState(false);
   const [bookingResult, setBookingResult] = useState(null);
   const [serverError, setServerError] = useState('');
+
+  // Cancellation Flow state
+  const [cancelData, setCancelData] = useState({ cancellation_code: '', email: '' });
+  const [cancelErrors, setCancelErrors] = useState({});
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelResult, setCancelResult] = useState(null);
+  const [cancelServerError, setCancelServerError] = useState('');
 
   // 1. Fetch backend services with fallback
   useEffect(() => {
@@ -191,6 +199,45 @@ export default function App() {
     }
   };
 
+  // Handle Cancellation Form Submission
+  const handleCancelSubmit = async (e) => {
+    e.preventDefault();
+    const errors = {};
+    if (!cancelData.cancellation_code.trim()) {
+      errors.cancellation_code = 'Reference code is required.';
+    }
+    if (!cancelData.email.trim()) {
+      errors.email = 'Email address is required.';
+    }
+    setCancelErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setCancelling(true);
+    setCancelServerError('');
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/cancel-appointment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cancellation_code: cancelData.cancellation_code.trim(),
+          email: cancelData.email.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setCancelResult(data);
+      } else {
+        setCancelServerError(data.message || 'Could not locate matching active appointment.');
+      }
+    } catch (err) {
+      setCancelServerError('Network error. Please try again.');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   const categories = ['All', ...new Set(services.map((s) => s.category).filter(Boolean))];
   const filteredServices = selectedCategory === 'All'
     ? services
@@ -203,320 +250,432 @@ export default function App() {
         <span className="brand-tagline">Manhattan Flagship</span>
         <h1 className="brand-title">LE SALON NYC</h1>
         <p className="brand-address">310 East 44th St, New York, NY • (212) 949-6693</p>
-      </header>
 
-      {/* Step Progress Bar */}
-      <nav className="step-bar">
-        <div className={`step-node ${step >= 1 ? 'active' : ''}`} onClick={() => step > 1 && setStep(1)}>
-          <span className="step-num">1</span>
-          <span className="step-label">Select Service</span>
-        </div>
-        <div className={`step-line ${step >= 2 ? 'active' : ''}`} />
-        <div className={`step-node ${step >= 2 ? 'active' : ''}`} onClick={() => step > 2 && setStep(2)}>
-          <span className="step-num">2</span>
-          <span className="step-label">Date & Time</span>
-        </div>
-        <div className={`step-line ${step >= 3 ? 'active' : ''}`} />
-        <div className={`step-node ${step >= 3 ? 'active' : ''}`}>
-          <span className="step-num">3</span>
-          <span className="step-label">Client Details</span>
-        </div>
-      </nav>
-
-      {/* STEP 1: SERVICES CATALOG GRID */}
-      {step === 1 && (
-        <section className="step-content">
-          <div className="section-header">
-            <h2>Our Service Menu</h2>
-            <p>Select a luxury service to view available reservation times.</p>
-          </div>
-
-          <div className="category-filter">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                className={`filter-chip ${selectedCategory === cat ? 'active' : ''}`}
-                onClick={() => setSelectedCategory(cat)}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          <div className="services-grid">
-            {filteredServices.map((service) => (
-              <div
-                key={service.id}
-                className="service-card"
-                onClick={() => handleServiceSelect(service)}
-              >
-                <div className="card-top">
-                  <span className="category-badge">{service.category}</span>
-                  <span className="service-duration">⏱ {service.duration_minutes} Mins</span>
-                </div>
-                <h3 className="service-name">{service.name}</h3>
-                <div className="card-bottom">
-                  <div className="price-tag">
-                    <span className="price-val">{service.price_display}</span>
-                  </div>
-                  <span className="card-btn">Select Slot →</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* STEP 2: DYNAMIC CALENDAR & TIME SLOTS */}
-      {step === 2 && selectedService && (
-        <section className="step-content">
-          <div className="section-header">
-            <button className="back-link" onClick={() => setStep(1)}>← Change Service</button>
-            <h2>Select Date & Duration Slot</h2>
-            <div className="service-summary-badge">
-              <span>Selected: <strong>{selectedService.name}</strong></span>
-              <span>Price: <strong>{selectedService.price_display}</strong></span>
-              <span>Session: <strong>{selectedService.duration_minutes} Minutes</strong></span>
-            </div>
-          </div>
-
-          <div className="booking-panel">
-            <div className="form-field">
-              <label className="field-label">Choose Appointment Date</label>
-              <input
-                type="date"
-                className="custom-date-input"
-                value={selectedDate}
-                min={new Date().toISOString().split('T')[0]}
-                onChange={(e) => setSelectedDate(e.target.value)}
-              />
-            </div>
-
-            <div className="slots-container">
-              <label className="field-label">
-                Available {selectedService.duration_minutes}-Min Slots for {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}:
-              </label>
-
-              {loadingSlots ? (
-                <div className="loading-spinner">Calculating open slots...</div>
-              ) : availableSlots.length === 0 ? (
-                <p className="no-slots">No slots remaining for this date. Please select another date above.</p>
-              ) : (
-                <div className="slots-grid">
-                  {availableSlots.map((slot, idx) => (
-                    <button
-                      key={idx}
-                      disabled={slot.isBooked}
-                      className={`slot-chip ${slot.isBooked ? 'booked' : ''} ${
-                        selectedSlot?.isoStart === slot.isoStart ? 'selected' : ''
-                      }`}
-                      onClick={() => setSelectedSlot(slot)}
-                    >
-                      <span className="slot-range">{slot.timeDisplay}</span>
-                      {slot.isBooked && <span className="booked-subtext">Booked</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="step-actions">
-            <button className="btn-secondary" onClick={() => setStep(1)}>Back</button>
-            <button
-              className="btn-primary"
-              disabled={!selectedSlot}
-              onClick={() => setStep(3)}
-            >
-              Continue to Guest Details →
-            </button>
-          </div>
-        </section>
-      )}
-
-      {/* STEP 3: CLIENT DETAILS FORM WITH SALON POLICIES */}
-      {step === 3 && selectedService && selectedSlot && (
-        <section className="step-content">
-          <div className="section-header">
-            <button className="back-link" onClick={() => setStep(2)}>← Change Date/Time</button>
-            <h2>Guest Details & Reservation Review</h2>
-            <p>Please enter your contact information to finalize your appointment.</p>
-          </div>
-
-          <div className="summary-card-panel">
-            <h3 className="summary-card-title">Booking Overview</h3>
-            <div className="summary-grid">
-              <div className="summary-cell">
-                <span className="cell-label">Service</span>
-                <span className="cell-val">{selectedService.name}</span>
-              </div>
-              <div className="summary-cell">
-                <span className="cell-label">Duration</span>
-                <span className="cell-val">{selectedService.duration_minutes} Minutes</span>
-              </div>
-              <div className="summary-cell">
-                <span className="cell-label">Reserved Time (NY Time)</span>
-                <span className="cell-val">{selectedSlot.timeDisplay}</span>
-              </div>
-              <div className="summary-cell">
-                <span className="cell-label">Estimated Price</span>
-                <span className="cell-val gold-text">{selectedService.price_display}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Clean Salon Policies & Terms Card */}
-          <div className="policies-card">
-            <h3 className="policies-title">Salon Policies & Terms</h3>
-            <ul className="policies-list">
-              <li className="policy-item">
-                <span className="policy-bullet">💳</span>
-                <div>
-                  <strong>In-Salon Payment:</strong> Payment is due at the salon upon service completion. We accept Cash, Visa, MasterCard, and Discover. <em>(American Express is NOT accepted)</em>.
-                </div>
-              </li>
-              <li className="policy-item">
-                <span className="policy-bullet">✨</span>
-                <div>
-                  <strong>Satisfaction Guarantee:</strong> If you are unsatisfied with your hair outcome, we will happily fix or redo your service. We do not offer monetary refunds under any circumstances.
-                </div>
-              </li>
-              <li className="policy-item">
-                <span className="policy-bullet">⏰</span>
-                <div>
-                  <strong>24-Hour Cancellation Policy:</strong> Cancellations must be made at least 24 hours prior to your scheduled time. Cancellations made within 24 hours or last-minute no-shows will be charged a <strong>50% service fee</strong>.
-                </div>
-              </li>
-            </ul>
-          </div>
-
-          <form onSubmit={handleFormSubmit} className="client-form-card" noValidate>
-            {serverError && <div className="error-banner">{serverError}</div>}
-
-            <div className="form-field">
-              <label className="field-label">Full Name <span className="required-star">*</span></label>
-              <input
-                type="text"
-                className={`form-input ${formErrors.full_name ? 'invalid' : ''}`}
-                placeholder="e.g. Farhan Umar"
-                value={formData.full_name}
-                onChange={(e) => {
-                  setFormData({ ...formData, full_name: e.target.value });
-                  if (formErrors.full_name) setFormErrors({ ...formErrors, full_name: null });
-                }}
-              />
-              {formErrors.full_name && <span className="field-error">{formErrors.full_name}</span>}
-            </div>
-
-            <div className="form-row">
-              <div className="form-field">
-                <label className="field-label">Email Address <span className="required-star">*</span></label>
-                <input
-                  type="email"
-                  className={`form-input ${formErrors.email ? 'invalid' : ''}`}
-                  placeholder="name@example.com"
-                  value={formData.email}
-                  onChange={(e) => {
-                    setFormData({ ...formData, email: e.target.value });
-                    if (formErrors.email) setFormErrors({ ...formErrors, email: null });
-                  }}
-                />
-                {formErrors.email && <span className="field-error">{formErrors.email}</span>}
-              </div>
-
-              <div className="form-field">
-                <label className="field-label">Phone Number <span className="required-star">*</span></label>
-                <input
-                  type="tel"
-                  className={`form-input ${formErrors.phone ? 'invalid' : ''}`}
-                  placeholder="(212) 555-0199"
-                  value={formData.phone}
-                  onChange={(e) => {
-                    setFormData({ ...formData, phone: e.target.value });
-                    if (formErrors.phone) setFormErrors({ ...formErrors, phone: null });
-                  }}
-                />
-                {formErrors.phone && <span className="field-error">{formErrors.phone}</span>}
-              </div>
-            </div>
-
-            <div className="form-field">
-              <label className="field-label">Special Notes or Requests (Optional)</label>
-              <textarea
-                className="form-textarea"
-                rows="3"
-                placeholder="Mention hair length, preferences, or sensitivities..."
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              />
-            </div>
-
-            <div className="step-actions">
-              <button type="button" className="btn-secondary" onClick={() => setStep(2)}>Back</button>
-              <button type="submit" className="btn-primary" disabled={submitting}>
-                {submitting ? 'Processing...' : 'Complete Reservation'}
-              </button>
-            </div>
-          </form>
-        </section>
-      )}
-
-      {/* STEP 4: SUCCESS CONFIRMATION RECEIPT WITH POLICY REMINDERS */}
-      {step === 4 && bookingResult && (
-        <section className="step-content confirmation-view">
-          <div className="success-badge-icon">✓</div>
-          <h2 className="confirmation-title">Reservation Confirmed!</h2>
-          <p className="confirmation-subtext">
-            A confirmation email has been dispatched to <strong>{formData.email}</strong>.
-          </p>
-
-          <div className="cancellation-code-card">
-            <span className="code-label">Cancellation / Reference Code</span>
-            <span className="code-val">{bookingResult.cancellation_code}</span>
-          </div>
-
-          <div className="summary-list">
-            <div className="summary-item">
-              <span>Customer:</span>
-              <strong>{formData.full_name}</strong>
-            </div>
-            <div className="summary-item">
-              <span>Service:</span>
-              <strong>{selectedService.name}</strong>
-            </div>
-            <div className="summary-item">
-              <span>Time Slot:</span>
-              <strong>{selectedSlot.timeDisplay} (New York Time)</strong>
-            </div>
-            <div className="summary-item">
-              <span>Salon Location:</span>
-              <strong>310 East 44th St, Manhattan, NY 10017</strong>
-            </div>
-          </div>
-
-          {/* Confirmation Screen Policy Box */}
-          <div className="policies-card confirmation-policies">
-            <h4 className="policies-title-sm">Important Reminders</h4>
-            <ul className="policies-list-sm">
-              <li><strong>Payment:</strong> Pay at salon via Cash or Card (No American Express).</li>
-              <li><strong>Redo Policy:</strong> We fix/redo unsatisfactory work; no monetary refunds.</li>
-              <li><strong>Cancellation:</strong> Notify us at least 24h prior to avoid a 50% charge.</li>
-            </ul>
-          </div>
-
+        {/* View Mode Navigation Toggle */}
+        <div className="header-nav-toggle">
           <button
-            className="btn-primary"
+            className={`nav-tab-btn ${viewMode === 'booking' ? 'active' : ''}`}
             onClick={() => {
-              setStep(1);
-              setSelectedService(null);
-              setSelectedSlot(null);
-              setFormData({ full_name: '', email: '', phone: '', notes: '' });
+              setViewMode('booking');
+              setCancelResult(null);
+            }}
+          >
+            Book Appointment
+          </button>
+          <button
+            className={`nav-tab-btn ${viewMode === 'cancel' ? 'active' : ''}`}
+            onClick={() => {
+              setViewMode('cancel');
               setBookingResult(null);
             }}
           >
-            Book Another Appointment
+            Manage / Cancel Reservation
           </button>
+        </div>
+      </header>
+
+      {/* CANCELLATION WORKFLOW VIEW */}
+      {viewMode === 'cancel' ? (
+        <section className="step-content">
+          {!cancelResult ? (
+            <>
+              <div className="section-header">
+                <h2>Cancel an Existing Appointment</h2>
+                <p>Enter your 6-character reference code and booking email to cancel your reservation.</p>
+              </div>
+
+              <div className="policies-card">
+                <h3 className="policies-title">Cancellation Policy Reminder</h3>
+                <ul className="policies-list">
+                  <li className="policy-item">
+                    <span className="policy-bullet">⏰</span>
+                    <div>
+                      <strong>24-Hour Notice Required:</strong> Cancellations made at least 24 hours prior to your scheduled time are penalty-free. Cancellations within 24 hours or last-minute no-shows incur a <strong>50% service fee</strong>.
+                    </div>
+                  </li>
+                </ul>
+              </div>
+
+              <form onSubmit={handleCancelSubmit} className="client-form-card" noValidate>
+                {cancelServerError && <div className="error-banner">{cancelServerError}</div>}
+
+                <div className="form-field">
+                  <label className="field-label">Reference Code <span className="required-star">*</span></label>
+                  <input
+                    type="text"
+                    className={`form-input uppercase-input ${cancelErrors.cancellation_code ? 'invalid' : ''}`}
+                    placeholder="e.g. Q705VD"
+                    value={cancelData.cancellation_code}
+                    onChange={(e) => setCancelData({ ...cancelData, cancellation_code: e.target.value.toUpperCase() })}
+                  />
+                  {cancelErrors.cancellation_code && <span className="field-error">{cancelErrors.cancellation_code}</span>}
+                </div>
+
+                <div className="form-field">
+                  <label className="field-label">Email Address <span className="required-star">*</span></label>
+                  <input
+                    type="email"
+                    className={`form-input ${cancelErrors.email ? 'invalid' : ''}`}
+                    placeholder="name@example.com"
+                    value={cancelData.email}
+                    onChange={(e) => setCancelData({ ...cancelData, email: e.target.value })}
+                  />
+                  {cancelErrors.email && <span className="field-error">{cancelErrors.email}</span>}
+                </div>
+
+                <div className="step-actions">
+                  <button type="button" className="btn-secondary" onClick={() => setViewMode('booking')}>
+                    Back to Booking
+                  </button>
+                  <button type="submit" className="btn-danger" disabled={cancelling}>
+                    {cancelling ? 'Verifying...' : 'Cancel Reservation'}
+                  </button>
+                </div>
+              </form>
+            </>
+          ) : (
+            <div className="confirmation-view">
+              <div className="cancel-badge-icon">✕</div>
+              <h2 className="confirmation-title">Reservation Cancelled</h2>
+              <p className="confirmation-subtext">
+                Your reservation <strong>({cancelData.cancellation_code})</strong> has been successfully cancelled and removed from our schedule.
+              </p>
+
+              {cancelResult.isLateCancellation && (
+                <div className="warning-banner">
+                  <strong>Notice on Late Cancellation:</strong> This appointment was cancelled within 24 hours of the scheduled time. Per salon policy, a 50% service charge applies.
+                </div>
+              )}
+
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  setViewMode('booking');
+                  setStep(1);
+                  setCancelResult(null);
+                  setCancelData({ cancellation_code: '', email: '' });
+                }}
+              >
+                Return to Service Menu
+              </button>
+            </div>
+          )}
         </section>
+      ) : (
+        <>
+          {/* Step Progress Bar */}
+          <nav className="step-bar">
+            <div className={`step-node ${step >= 1 ? 'active' : ''}`} onClick={() => step > 1 && setStep(1)}>
+              <span className="step-num">1</span>
+              <span className="step-label">Select Service</span>
+            </div>
+            <div className={`step-line ${step >= 2 ? 'active' : ''}`} />
+            <div className={`step-node ${step >= 2 ? 'active' : ''}`} onClick={() => step > 2 && setStep(2)}>
+              <span className="step-num">2</span>
+              <span className="step-label">Date & Time</span>
+            </div>
+            <div className={`step-line ${step >= 3 ? 'active' : ''}`} />
+            <div className={`step-node ${step >= 3 ? 'active' : ''}`}>
+              <span className="step-num">3</span>
+              <span className="step-label">Client Details</span>
+            </div>
+          </nav>
+
+          {/* STEP 1: SERVICES CATALOG GRID */}
+          {step === 1 && (
+            <section className="step-content">
+              <div className="section-header">
+                <h2>Our Service Menu</h2>
+                <p>Select a luxury service to view available reservation times.</p>
+              </div>
+
+              <div className="category-filter">
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    className={`filter-chip ${selectedCategory === cat ? 'active' : ''}`}
+                    onClick={() => setSelectedCategory(cat)}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              <div className="services-grid">
+                {filteredServices.map((service) => (
+                  <div
+                    key={service.id}
+                    className="service-card"
+                    onClick={() => handleServiceSelect(service)}
+                  >
+                    <div className="card-top">
+                      <span className="category-badge">{service.category}</span>
+                      <span className="service-duration">⏱ {service.duration_minutes} Mins</span>
+                    </div>
+                    <h3 className="service-name">{service.name}</h3>
+                    <div className="card-bottom">
+                      <div className="price-tag">
+                        <span className="price-val">{service.price_display}</span>
+                      </div>
+                      <span className="card-btn">Select Slot →</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* STEP 2: DYNAMIC CALENDAR & TIME SLOTS */}
+          {step === 2 && selectedService && (
+            <section className="step-content">
+              <div className="section-header">
+                <button className="back-link" onClick={() => setStep(1)}>← Change Service</button>
+                <h2>Select Date & Duration Slot</h2>
+                <div className="service-summary-badge">
+                  <span>Selected: <strong>{selectedService.name}</strong></span>
+                  <span>Price: <strong>{selectedService.price_display}</strong></span>
+                  <span>Session: <strong>{selectedService.duration_minutes} Minutes</strong></span>
+                </div>
+              </div>
+
+              <div className="booking-panel">
+                <div className="form-field">
+                  <label className="field-label">Choose Appointment Date</label>
+                  <input
+                    type="date"
+                    className="custom-date-input"
+                    value={selectedDate}
+                    min={new Date().toISOString().split('T')[0]}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                  />
+                </div>
+
+                <div className="slots-container">
+                  <label className="field-label">
+                    Available {selectedService.duration_minutes}-Min Slots for {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}:
+                  </label>
+
+                  {loadingSlots ? (
+                    <div className="loading-spinner">Calculating open slots...</div>
+                  ) : availableSlots.length === 0 ? (
+                    <p className="no-slots">No slots remaining for this date. Please select another date above.</p>
+                  ) : (
+                    <div className="slots-grid">
+                      {availableSlots.map((slot, idx) => (
+                        <button
+                          key={idx}
+                          disabled={slot.isBooked}
+                          className={`slot-chip ${slot.isBooked ? 'booked' : ''} ${
+                            selectedSlot?.isoStart === slot.isoStart ? 'selected' : ''
+                          }`}
+                          onClick={() => setSelectedSlot(slot)}
+                        >
+                          <span className="slot-range">{slot.timeDisplay}</span>
+                          {slot.isBooked && <span className="booked-subtext">Booked</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="step-actions">
+                <button className="btn-secondary" onClick={() => setStep(1)}>Back</button>
+                <button
+                  className="btn-primary"
+                  disabled={!selectedSlot}
+                  onClick={() => setStep(3)}
+                >
+                  Continue to Guest Details →
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* STEP 3: CLIENT DETAILS FORM WITH SALON POLICIES */}
+          {step === 3 && selectedService && selectedSlot && (
+            <section className="step-content">
+              <div className="section-header">
+                <button className="back-link" onClick={() => setStep(2)}>← Change Date/Time</button>
+                <h2>Guest Details & Reservation Review</h2>
+                <p>Please enter your contact information to finalize your appointment.</p>
+              </div>
+
+              <div className="summary-card-panel">
+                <h3 className="summary-card-title">Booking Overview</h3>
+                <div className="summary-grid">
+                  <div className="summary-cell">
+                    <span className="cell-label">Service</span>
+                    <span className="cell-val">{selectedService.name}</span>
+                  </div>
+                  <div className="summary-cell">
+                    <span className="cell-label">Duration</span>
+                    <span className="cell-val">{selectedService.duration_minutes} Minutes</span>
+                  </div>
+                  <div className="summary-cell">
+                    <span className="cell-label">Reserved Time (NY Time)</span>
+                    <span className="cell-val">{selectedSlot.timeDisplay}</span>
+                  </div>
+                  <div className="summary-cell">
+                    <span className="cell-label">Estimated Price</span>
+                    <span className="cell-val gold-text">{selectedService.price_display}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Clean Salon Policies & Terms Card */}
+              <div className="policies-card">
+                <h3 className="policies-title">Salon Policies & Terms</h3>
+                <ul className="policies-list">
+                  <li className="policy-item">
+                    <span className="policy-bullet">💳</span>
+                    <div>
+                      <strong>In-Salon Payment:</strong> Payment is due at the salon upon service completion. We accept Cash, Visa, MasterCard, and Discover. <em>(American Express is NOT accepted)</em>.
+                    </div>
+                  </li>
+                  <li className="policy-item">
+                    <span className="policy-bullet">✨</span>
+                    <div>
+                      <strong>Satisfaction Guarantee:</strong> If you are unsatisfied with your hair outcome, we will happily fix or redo your service. We do not offer monetary refunds under any circumstances.
+                    </div>
+                  </li>
+                  <li className="policy-item">
+                    <span className="policy-bullet">⏰</span>
+                    <div>
+                      <strong>24-Hour Cancellation Policy:</strong> Cancellations must be made at least 24 hours prior to your scheduled time. Cancellations made within 24 hours or last-minute no-shows will be charged a <strong>50% service fee</strong>.
+                    </div>
+                  </li>
+                </ul>
+              </div>
+
+              <form onSubmit={handleFormSubmit} className="client-form-card" noValidate>
+                {serverError && <div className="error-banner">{serverError}</div>}
+
+                <div className="form-field">
+                  <label className="field-label">Full Name <span className="required-star">*</span></label>
+                  <input
+                    type="text"
+                    className={`form-input ${formErrors.full_name ? 'invalid' : ''}`}
+                    placeholder="e.g. Farhan Umar"
+                    value={formData.full_name}
+                    onChange={(e) => {
+                      setFormData({ ...formData, full_name: e.target.value });
+                      if (formErrors.full_name) setFormErrors({ ...formErrors, full_name: null });
+                    }}
+                  />
+                  {formErrors.full_name && <span className="field-error">{formErrors.full_name}</span>}
+                </div>
+
+                <div className="form-row">
+                  <div className="form-field">
+                    <label className="field-label">Email Address <span className="required-star">*</span></label>
+                    <input
+                      type="email"
+                      className={`form-input ${formErrors.email ? 'invalid' : ''}`}
+                      placeholder="name@example.com"
+                      value={formData.email}
+                      onChange={(e) => {
+                        setFormData({ ...formData, email: e.target.value });
+                        if (formErrors.email) setFormErrors({ ...formErrors, email: null });
+                      }}
+                    />
+                    {formErrors.email && <span className="field-error">{formErrors.email}</span>}
+                  </div>
+
+                  <div className="form-field">
+                    <label className="field-label">Phone Number <span className="required-star">*</span></label>
+                    <input
+                      type="tel"
+                      className={`form-input ${formErrors.phone ? 'invalid' : ''}`}
+                      placeholder="(212) 555-0199"
+                      value={formData.phone}
+                      onChange={(e) => {
+                        setFormData({ ...formData, phone: e.target.value });
+                        if (formErrors.phone) setFormErrors({ ...formErrors, phone: null });
+                      }}
+                    />
+                    {formErrors.phone && <span className="field-error">{formErrors.phone}</span>}
+                  </div>
+                </div>
+
+                <div className="form-field">
+                  <label className="field-label">Special Notes or Requests (Optional)</label>
+                  <textarea
+                    className="form-textarea"
+                    rows="3"
+                    placeholder="Mention hair length, preferences, or sensitivities..."
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  />
+                </div>
+
+                <div className="step-actions">
+                  <button type="button" className="btn-secondary" onClick={() => setStep(2)}>Back</button>
+                  <button type="submit" className="btn-primary" disabled={submitting}>
+                    {submitting ? 'Processing...' : 'Complete Reservation'}
+                  </button>
+                </div>
+              </form>
+            </section>
+          )}
+
+          {/* STEP 4: SUCCESS CONFIRMATION RECEIPT WITH POLICY REMINDERS */}
+          {step === 4 && bookingResult && (
+            <section className="step-content confirmation-view">
+              <div className="success-badge-icon">✓</div>
+              <h2 className="confirmation-title">Reservation Confirmed!</h2>
+              <p className="confirmation-subtext">
+                A confirmation email has been dispatched to <strong>{formData.email}</strong>.
+              </p>
+
+              <div className="cancellation-code-card">
+                <span className="code-label">Cancellation / Reference Code</span>
+                <span className="code-val">{bookingResult.cancellation_code}</span>
+              </div>
+
+              <div className="summary-list">
+                <div className="summary-item">
+                  <span>Customer:</span>
+                  <strong>{formData.full_name}</strong>
+                </div>
+                <div className="summary-item">
+                  <span>Service:</span>
+                  <strong>{selectedService.name}</strong>
+                </div>
+                <div className="summary-item">
+                  <span>Time Slot:</span>
+                  <strong>{selectedSlot.timeDisplay} (New York Time)</strong>
+                </div>
+                <div className="summary-item">
+                  <span>Salon Location:</span>
+                  <strong>310 East 44th St, Manhattan, NY 10017</strong>
+                </div>
+              </div>
+
+              <div className="policies-card confirmation-policies">
+                <h4 className="policies-title-sm">Important Reminders</h4>
+                <ul className="policies-list-sm">
+                  <li><strong>Payment:</strong> Pay at salon via Cash or Card (No American Express).</li>
+                  <li><strong>Redo Policy:</strong> We fix/redo unsatisfactory work; no monetary refunds.</li>
+                  <li><strong>Cancellation:</strong> Notify us at least 24h prior to avoid a 50% charge.</li>
+                </ul>
+              </div>
+
+              <button
+                className="btn-primary"
+                onClick={() => {
+                  setStep(1);
+                  setSelectedService(null);
+                  setSelectedSlot(null);
+                  setFormData({ full_name: '', email: '', phone: '', notes: '' });
+                  setBookingResult(null);
+                }}
+              >
+                Book Another Appointment
+              </button>
+            </section>
+          )}
+        </>
       )}
     </div>
   );

@@ -58,7 +58,7 @@ const initDb = async () => {
       await pool.query(q).catch((e) => console.log('DB Schema sync step:', e.message));
     }
 
-    console.log('✅ PostgreSQL DB schema aligned (end_time & constraints updated).');
+    console.log('✅ PostgreSQL DB schema aligned (cancellation & status columns verified).');
   } catch (err) {
     console.error('❌ Database schema migration error:', err.message);
   }
@@ -256,7 +256,6 @@ app.post('/api/appointments', async (req, res) => {
       hour12: true,
     }) + ' (New York Time)';
 
-    // Customer Confirmation Email HTML with Structured Policies
     const customerHtml = `
       <div style="font-family: 'Montserrat', Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e6d3a7; border-radius: 12px; padding: 30px; color: #1f1f1f;">
         <div style="text-align: center; border-bottom: 1px solid #e6e1da; padding-bottom: 20px; margin-bottom: 25px;">
@@ -280,7 +279,6 @@ app.post('/api/appointments', async (req, res) => {
           <li><strong>Location:</strong> 310 East 44th St, Manhattan, NY 10017</li>
         </ul>
 
-        <!-- Structured Salon Policies Box -->
         <div style="background-color: #faf8f5; border: 1px solid #e6d3a7; border-radius: 8px; padding: 18px; margin: 25px 0;">
           <h4 style="color: #b88e28; margin: 0 0 12px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Salon Policies & Guidelines</h4>
           <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #444; line-height: 1.6;">
@@ -333,6 +331,127 @@ app.post('/api/appointments', async (req, res) => {
   } catch (err) {
     console.error('Error creating appointment:', err);
     res.status(500).json({ success: false, message: err.message || 'Server error processing reservation.' });
+  }
+});
+
+// --------------------------------------------------------------------------
+// 5. Cancel Appointment Endpoint
+// --------------------------------------------------------------------------
+app.post('/api/cancel-appointment', async (req, res) => {
+  const { cancellation_code, email } = req.body;
+
+  if (!cancellation_code || !email) {
+    return res.status(400).json({ success: false, message: 'Reference code and email address are required.' });
+  }
+
+  try {
+    const searchRes = await pool.query(
+      'SELECT * FROM appointments WHERE UPPER(cancellation_code) = UPPER($1) AND LOWER(email) = LOWER($2)',
+      [cancellation_code.trim(), email.trim()]
+    );
+
+    if (searchRes.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'No active reservation found with that reference code and email.' });
+    }
+
+    const appointment = searchRes.rows[0];
+
+    if (appointment.status === 'cancelled') {
+      return res.status(400).json({ success: false, message: 'This reservation has already been cancelled.' });
+    }
+
+    // Update DB status to cancelled
+    const updateRes = await pool.query(
+      "UPDATE appointments SET status = 'cancelled' WHERE id = $1 RETURNING *",
+      [appointment.id]
+    );
+
+    const cancelledAppt = updateRes.rows[0];
+
+    // Check if cancellation is within 24 hours
+    const apptTimeMs = new Date(cancelledAppt.start_time).getTime();
+    const nowMs = Date.now();
+    const hoursNotice = (apptTimeMs - nowMs) / (1000 * 60 * 60);
+    const isLateCancellation = hoursNotice < 24;
+
+    const formattedDateStr = new Date(cancelledAppt.start_time).toLocaleString('en-US', {
+      timeZone: 'America/New_York',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    }) + ' (New York Time)';
+
+    // Send Customer Cancellation Email
+    const customerCancelHtml = `
+      <div style="font-family: 'Montserrat', Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e6d3a7; border-radius: 12px; padding: 30px; color: #1f1f1f;">
+        <div style="text-align: center; border-bottom: 1px solid #e6e1da; padding-bottom: 20px; margin-bottom: 25px;">
+          <h1 style="font-family: Georgia, serif; color: #b88e28; letter-spacing: 3px; margin: 0;">LE SALON NYC</h1>
+          <p style="font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: #666; margin-top: 5px;">Reservation Cancellation</p>
+        </div>
+
+        <p>Dear <strong>${cancelledAppt.full_name}</strong>,</p>
+        <p>Your reservation <strong>(${cancelledAppt.cancellation_code})</strong> has been successfully <strong>cancelled</strong>.</p>
+
+        <h3 style="color: #121212; border-bottom: 1px solid #eee; padding-bottom: 8px;">Cancelled Details</h3>
+        <ul style="list-style: none; padding: 0; line-height: 1.8;">
+          <li><strong>Service:</strong> ${cancelledAppt.service_name}</li>
+          <li><strong>Date & Time:</strong> ${formattedDateStr}</li>
+        </ul>
+
+        ${isLateCancellation ? `
+          <div style="background-color: #fff3f3; border: 1px solid #ffcdd2; padding: 15px; border-radius: 8px; margin: 20px 0; font-size: 13px; color: #c62828;">
+            <strong>Notice on 24-Hour Policy:</strong> This cancellation was submitted within 24 hours of your scheduled time. Per salon policy, a 50% service charge applies.
+          </div>
+        ` : ''}
+
+        <div style="text-align: center; border-top: 1px solid #e6e1da; padding-top: 15px; margin-top: 30px; font-size: 11px; color: #888;">
+          Le Salon NYC • 310 East 44th St, New York, NY • (212) 949-6693
+        </div>
+      </div>
+    `;
+
+    // Send Admin Cancellation Email Notification
+    const adminEmail = process.env.SALON_NOTIFICATION_EMAIL || 'umarfarhan442@gmail.com';
+    const adminCancelHtml = `
+      <div style="font-family: Arial, sans-serif; padding: 25px; border: 1px solid #c62828; border-radius: 8px; max-width: 600px;">
+        <h2 style="color: #c62828; margin-top: 0;">⚠️ Reservation Cancelled by Customer</h2>
+        <ul>
+          <li><strong>Customer Name:</strong> ${cancelledAppt.full_name}</li>
+          <li><strong>Customer Email:</strong> ${cancelledAppt.email}</li>
+          <li><strong>Customer Phone:</strong> ${cancelledAppt.phone}</li>
+          <li><strong>Service:</strong> ${cancelledAppt.service_name}</li>
+          <li><strong>Scheduled Time:</strong> ${formattedDateStr}</li>
+          <li><strong>Reference Code:</strong> ${cancelledAppt.cancellation_code}</li>
+          <li><strong>Notice Period:</strong> ${isLateCancellation ? 'LESS than 24 Hours (50% fee applies)' : 'More than 24 Hours (Standard cancellation)'}</li>
+        </ul>
+      </div>
+    `;
+
+    sendBrevoEmail({
+      to: cancelledAppt.email,
+      subject: `Reservation Cancelled — Le Salon NYC (${cancelledAppt.cancellation_code})`,
+      htmlContent: customerCancelHtml,
+    }).catch((e) => console.error('Customer cancel email error:', e.message));
+
+    sendBrevoEmail({
+      to: adminEmail,
+      subject: `CANCELLED: ${cancelledAppt.service_name} - ${cancelledAppt.full_name}`,
+      htmlContent: adminCancelHtml,
+    }).catch((e) => console.error('Admin cancel email error:', e.message));
+
+    res.json({
+      success: true,
+      message: 'Reservation cancelled successfully.',
+      isLateCancellation,
+      appointment: cancelledAppt,
+    });
+  } catch (err) {
+    console.error('Error cancelling appointment:', err);
+    res.status(500).json({ success: false, message: 'Server error processing cancellation.' });
   }
 });
 
