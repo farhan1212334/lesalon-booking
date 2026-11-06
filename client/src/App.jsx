@@ -3,43 +3,61 @@ import './index.css';
 
 const API_BASE_URL = 'https://lesalon-api.onrender.com/api';
 
+// Complete Le Salon NYC Master Catalog
+const DEFAULT_SERVICES = [
+  { id: 1, name: 'Shampoo Haircut & Blow Dry', price_display: '$75 and up', starting_price: 75, duration_minutes: 75, category: 'Haircut & Styling' },
+  { id: 2, name: 'Shampoo & Blow Dry', price_display: '$40 and up', starting_price: 40, duration_minutes: 45, category: 'Haircut & Styling' },
+  { id: 3, name: 'Single Process Color', price_display: '$100 and up', starting_price: 100, duration_minutes: 75, category: 'Color Services' },
+  { id: 4, name: 'Single Process Color & Blow Dry', price_display: '$130 and up', starting_price: 130, duration_minutes: 120, category: 'Color Services' },
+  { id: 5, name: 'Single Process & Full Head of Highlights', price_display: '$330 and up', starting_price: 330, duration_minutes: 180, category: 'Color Services' },
+  { id: 6, name: 'Single Process with Full Head of Highlights & Blow Dry', price_display: '$380 and up', starting_price: 380, duration_minutes: 210, category: 'Color Services' },
+  { id: 7, name: 'Full Head Highlights', price_display: '$250', starting_price: 250, duration_minutes: 120, category: 'Highlights' },
+  { id: 8, name: 'Full Head Highlights & Blow Dry', price_display: '$290', starting_price: 290, duration_minutes: 150, category: 'Highlights' },
+  { id: 9, name: 'Half Head Highlights', price_display: '$180', starting_price: 180, duration_minutes: 90, category: 'Highlights' },
+  { id: 10, name: 'Half Head Highlights & Blow Dry', price_display: '$220', starting_price: 220, duration_minutes: 120, category: 'Highlights' },
+  { id: 11, name: 'Hair Treatment', price_display: '$35', starting_price: 35, duration_minutes: 30, category: 'Treatments' },
+  { id: 12, name: 'Organic Perm', price_display: '$150 and up', starting_price: 150, duration_minutes: 120, category: 'Treatments' },
+  { id: 13, name: 'Barber Haircut', price_display: '$40', starting_price: 40, duration_minutes: 30, category: 'Haircut & Styling' },
+  { id: 14, name: 'Makeup', price_display: 'Upon consultation', starting_price: 0, duration_minutes: 60, category: 'Specialty' },
+  { id: 15, name: 'Keratin Protein Treatment', price_display: 'Upon consultation', starting_price: 0, duration_minutes: 150, category: 'Treatments' },
+];
+
 export default function App() {
   const [step, setStep] = useState(1);
-  const [services, setServices] = useState([]);
+  const [services, setServices] = useState(DEFAULT_SERVICES);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedService, setSelectedService] = useState(null);
   
   // Date & Slot state
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
-  const [bookedSlots, setBookedSlots] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [availableSlots, setAvailableSlots] = useState([]);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // Form state
-  const [formData, setFormData] = useState({
-    full_name: '',
-    email: '',
-    phone: '',
-    notes: '',
-  });
+  // Client Form state & Validations
+  const [formData, setFormData] = useState({ full_name: '', email: '', phone: '', notes: '' });
+  const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [bookingResult, setBookingResult] = useState(null);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [serverError, setServerError] = useState('');
 
-  // 1. Load Services on Mount
+  // 1. Fetch backend services with fallback to master list
   useEffect(() => {
     fetch(`${API_BASE_URL}/services`)
       .then((res) => res.json())
       .then((data) => {
-        if (Array.isArray(data)) setServices(data);
+        if (Array.isArray(data) && data.length > 0) {
+          const merged = DEFAULT_SERVICES.map((def) => {
+            const found = data.find((d) => d.name.toLowerCase() === def.name.toLowerCase());
+            return found ? { ...def, ...found } : def;
+          });
+          setServices(merged);
+        }
       })
-      .catch((err) => console.error('Error loading services:', err));
+      .catch((err) => console.log('Using static service catalog'));
   }, []);
 
-  // 2. Fetch Booked Slots & Compute Duration Slots when Date/Service Changes
+  // 2. Fetch Booked Slots & Compute Duration Slots (Start to End Time)
   useEffect(() => {
     if (!selectedDate || !selectedService) return;
 
@@ -48,25 +66,21 @@ export default function App() {
       .then((res) => res.json())
       .then((data) => {
         const booked = Array.isArray(data) ? data : [];
-        setBookedSlots(booked);
         calculateTimeSlots(selectedDate, selectedService.duration_minutes, booked);
       })
-      .catch((err) => {
-        console.error('Error fetching booked slots:', err);
-        calculateTimeSlots(selectedDate, selectedService.duration_minutes, []);
-      })
+      .catch(() => calculateTimeSlots(selectedDate, selectedService.duration_minutes, []))
       .finally(() => setLoadingSlots(false));
   }, [selectedDate, selectedService]);
 
-  // Dynamic Slot Calculation with Collision Detection
+  // Dynamic Time Slot Calculator (Outputs e.g. "10:00 AM – 12:00 PM")
   const calculateTimeSlots = (dateStr, durationMins, bookedList) => {
     const slots = [];
-    const openHour = 9;  // 9:00 AM
-    const closeHour = 19; // 7:00 PM (19:00)
+    const openHour = 9;   // 9:00 AM
+    const closeHour = 19; // 7:00 PM
 
     const startOfDay = new Date(`${dateStr}T00:00:00`);
-    const salonOpenTime = new Date(startOfDay.getTime() + openHour * 60 * 60 * 1000);
-    const salonCloseTime = new Date(startOfDay.getTime() + closeHour * 60 * 60 * 1000);
+    const salonOpenTime = new Date(startOfDay.getTime() + openHour * 3600000);
+    const salonCloseTime = new Date(startOfDay.getTime() + closeHour * 3600000);
 
     let currentTime = new Date(salonOpenTime);
 
@@ -81,19 +95,16 @@ export default function App() {
         return slotStart.getTime() < bEnd && slotEnd.getTime() > bStart;
       });
 
-      const formattedTime = slotStart.toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      });
+      const startFormatted = slotStart.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+      const endFormatted = slotEnd.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
 
       slots.push({
-        timeDisplay: formattedTime,
+        timeDisplay: `${startFormatted} – ${endFormatted}`,
         isoStart: slotStart.toISOString(),
         isBooked,
       });
 
-      // Increment in 30-minute step intervals across the business day
+      // 30-minute interval steps across business day
       currentTime = new Date(currentTime.getTime() + 30 * 60000);
     }
 
@@ -106,24 +117,46 @@ export default function App() {
     setStep(2);
   };
 
-  const handleFormSubmit = async (e) => {
-    e.preventDefault();
-    if (!selectedSlot || !formData.full_name || !formData.email || !formData.phone) {
-      setErrorMsg('Please fill out all required fields.');
-      return;
+  // Form Validation Logic
+  const validateForm = () => {
+    const errors = {};
+    if (!formData.full_name.trim()) {
+      errors.full_name = 'Full name is required.';
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!formData.email.trim()) {
+      errors.email = 'Email address is required.';
+    } else if (!emailRegex.test(formData.email.trim())) {
+      errors.email = 'Please enter a valid email address (e.g. name@domain.com).';
+    }
+
+    const phoneDigits = formData.phone.replace(/\D/g, '');
+    if (!formData.phone.trim()) {
+      errors.phone = 'Phone number is required.';
+    } else if (phoneDigits.length < 7) {
+      errors.phone = 'Please enter a valid phone number (at least 7 digits).';
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleFormSubmit = async (e) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+
     setSubmitting(true);
-    setErrorMsg('');
+    setServerError('');
 
     try {
       const payload = {
         service_id: selectedService.id,
         start_time: selectedSlot.isoStart,
-        full_name: formData.full_name,
-        email: formData.email,
-        phone: formData.phone,
-        notes: formData.notes,
+        full_name: formData.full_name.trim(),
+        email: formData.email.trim(),
+        phone: formData.phone.trim(),
+        notes: formData.notes.trim(),
       };
 
       const res = await fetch(`${API_BASE_URL}/appointments`, {
@@ -135,12 +168,12 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setBookingResult(data);
-        setStep(4); // Success screen
+        setStep(4);
       } else {
-        setErrorMsg(data.message || 'Booking failed. Please try another slot.');
+        setServerError(data.message || 'Booking failed. Please select another slot.');
       }
     } catch (err) {
-      setErrorMsg('Network error. Please try again.');
+      setServerError('Network error. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -160,14 +193,14 @@ export default function App() {
         <p className="brand-address">310 East 44th St, New York, NY • (212) 949-6693</p>
       </header>
 
-      {/* Step Progress Bar */}
+      {/* Interactive Step Progress Bar */}
       <nav className="step-bar">
-        <div className={`step-node ${step >= 1 ? 'active' : ''}`}>
+        <div className={`step-node ${step >= 1 ? 'active' : ''}`} onClick={() => step > 1 && setStep(1)}>
           <span className="step-num">1</span>
           <span className="step-label">Select Service</span>
         </div>
         <div className={`step-line ${step >= 2 ? 'active' : ''}`} />
-        <div className={`step-node ${step >= 2 ? 'active' : ''}`}>
+        <div className={`step-node ${step >= 2 ? 'active' : ''}`} onClick={() => step > 2 && setStep(2)}>
           <span className="step-num">2</span>
           <span className="step-label">Date & Time</span>
         </div>
@@ -178,15 +211,14 @@ export default function App() {
         </div>
       </nav>
 
-      {/* STEP 1: SERVICE SELECTION GRID */}
+      {/* STEP 1: SERVICES CATALOG GRID */}
       {step === 1 && (
         <section className="step-content">
           <div className="section-header">
-            <h2>Select a Service</h2>
-            <p>Choose from our luxury hair care, coloring, and styling treatments.</p>
+            <h2>Our Service Menu</h2>
+            <p>Select a luxury service to view available reservation times.</p>
           </div>
 
-          {/* Category Filter Pills */}
           <div className="category-filter">
             {categories.map((cat) => (
               <button
@@ -199,25 +231,23 @@ export default function App() {
             ))}
           </div>
 
-          {/* Service Cards Grid */}
           <div className="services-grid">
             {filteredServices.map((service) => (
               <div
                 key={service.id}
-                className={`service-card ${selectedService?.id === service.id ? 'selected' : ''}`}
+                className="service-card"
                 onClick={() => handleServiceSelect(service)}
               >
                 <div className="card-top">
-                  <span className="category-badge">{service.category || 'Service'}</span>
+                  <span className="category-badge">{service.category}</span>
                   <span className="service-duration">⏱ {service.duration_minutes} Mins</span>
                 </div>
                 <h3 className="service-name">{service.name}</h3>
                 <div className="card-bottom">
                   <div className="price-tag">
-                    <span className="price-label">Starting at</span>
-                    <span className="price-val">${service.starting_price}</span>
+                    <span className="price-val">{service.price_display}</span>
                   </div>
-                  <button className="card-btn">Select Slot →</button>
+                  <span className="card-btn">Select Slot →</span>
                 </div>
               </div>
             ))}
@@ -225,21 +255,22 @@ export default function App() {
         </section>
       )}
 
-      {/* STEP 2: CALENDAR & DYNAMIC TIME SLOTS */}
+      {/* STEP 2: DYNAMIC CALENDAR & TIME SLOTS */}
       {step === 2 && selectedService && (
         <section className="step-content">
           <div className="section-header">
             <button className="back-link" onClick={() => setStep(1)}>← Change Service</button>
-            <h2>Choose Date & Available Time</h2>
-            <p className="service-summary-badge">
-              Selected: <strong>{selectedService.name}</strong> ({selectedService.duration_minutes} mins)
-            </p>
+            <h2>Select Date & Duration Slot</h2>
+            <div className="service-summary-badge">
+              <span>Selected: <strong>{selectedService.name}</strong></span>
+              <span>Price: <strong>{selectedService.price_display}</strong></span>
+              <span>Session: <strong>{selectedService.duration_minutes} Minutes</strong></span>
+            </div>
           </div>
 
           <div className="booking-panel">
-            {/* Calendar Date Input */}
-            <div className="date-picker-box">
-              <label className="input-label">Select Date</label>
+            <div className="form-field">
+              <label className="field-label">Choose Appointment Date</label>
               <input
                 type="date"
                 className="custom-date-input"
@@ -249,16 +280,15 @@ export default function App() {
               />
             </div>
 
-            {/* Time Slot Grid */}
             <div className="slots-container">
-              <label className="input-label">
-                Available Slots for {selectedService.duration_minutes}-Min Session:
+              <label className="field-label">
+                Available {selectedService.duration_minutes}-Min Slots for {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}:
               </label>
 
               {loadingSlots ? (
-                <div className="loading-spinner">Calculating open slots...</div>
+                <div className="loading-spinner">Calculating available duration slots...</div>
               ) : availableSlots.length === 0 ? (
-                <p className="no-slots">No available slots for this date. Please pick another day.</p>
+                <p className="no-slots">No slots remaining for this date. Please select another date above.</p>
               ) : (
                 <div className="slots-grid">
                   {availableSlots.map((slot, idx) => (
@@ -270,7 +300,7 @@ export default function App() {
                       }`}
                       onClick={() => setSelectedSlot(slot)}
                     >
-                      <span>{slot.timeDisplay}</span>
+                      <span className="slot-range">{slot.timeDisplay}</span>
                       {slot.isBooked && <span className="booked-subtext">Booked</span>}
                     </button>
                   ))}
@@ -286,71 +316,101 @@ export default function App() {
               disabled={!selectedSlot}
               onClick={() => setStep(3)}
             >
-              Continue to Details →
+              Continue to Guest Details →
             </button>
           </div>
         </section>
       )}
 
-      {/* STEP 3: CLIENT DETAILS FORM */}
+      {/* STEP 3: NEAT & VALIDATED CLIENT DETAILS FORM */}
       {step === 3 && selectedService && selectedSlot && (
         <section className="step-content">
           <div className="section-header">
             <button className="back-link" onClick={() => setStep(2)}>← Change Date/Time</button>
-            <h2>Guest Information</h2>
-            <p>Please enter your contact information to receive your confirmation receipt.</p>
+            <h2>Guest Details & Reservation Review</h2>
+            <p>Please enter your contact information to finalize your appointment.</p>
           </div>
 
-          <div className="booking-summary-card">
-            <div><strong>Service:</strong> {selectedService.name}</div>
-            <div><strong>Duration:</strong> {selectedService.duration_minutes} Mins</div>
-            <div><strong>Date & Time:</strong> {new Date(selectedSlot.isoStart).toLocaleString()}</div>
-            <div><strong>Total Due at Salon:</strong> ${selectedService.starting_price}</div>
+          {/* Clean Reservation Summary Panel */}
+          <div className="summary-card-panel">
+            <h3 className="summary-card-title">Booking Overview</h3>
+            <div className="summary-grid">
+              <div className="summary-cell">
+                <span className="cell-label">Service</span>
+                <span className="cell-val">{selectedService.name}</span>
+              </div>
+              <div className="summary-cell">
+                <span className="cell-label">Duration</span>
+                <span className="cell-val">{selectedService.duration_minutes} Minutes</span>
+              </div>
+              <div className="summary-cell">
+                <span className="cell-label">Reserved Time</span>
+                <span className="cell-val">{selectedSlot.timeDisplay}</span>
+              </div>
+              <div className="summary-cell">
+                <span className="cell-label">Estimated Price</span>
+                <span className="cell-val gold-text">{selectedService.price_display}</span>
+              </div>
+            </div>
           </div>
 
-          <form onSubmit={handleFormSubmit} className="client-form">
-            {errorMsg && <div className="error-banner">{errorMsg}</div>}
+          {/* Client Details Form */}
+          <form onSubmit={handleFormSubmit} className="client-form-card" noValidate>
+            {serverError && <div className="error-banner">{serverError}</div>}
 
-            <div className="form-group">
-              <label>Full Name *</label>
+            <div className="form-field">
+              <label className="field-label">Full Name <span className="required-star">*</span></label>
               <input
                 type="text"
-                required
-                placeholder="e.g., Jane Doe"
+                className={`form-input ${formErrors.full_name ? 'invalid' : ''}`}
+                placeholder="e.g. Farhan Umar"
                 value={formData.full_name}
-                onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, full_name: e.target.value });
+                  if (formErrors.full_name) setFormErrors({ ...formErrors, full_name: null });
+                }}
               />
+              {formErrors.full_name && <span className="field-error">{formErrors.full_name}</span>}
             </div>
 
             <div className="form-row">
-              <div className="form-group">
-                <label>Email Address *</label>
+              <div className="form-field">
+                <label className="field-label">Email Address <span className="required-star">*</span></label>
                 <input
                   type="email"
-                  required
-                  placeholder="jane@example.com"
+                  className={`form-input ${formErrors.email ? 'invalid' : ''}`}
+                  placeholder="name@example.com"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, email: e.target.value });
+                    if (formErrors.email) setFormErrors({ ...formErrors, email: null });
+                  }}
                 />
+                {formErrors.email && <span className="field-error">{formErrors.email}</span>}
               </div>
 
-              <div className="form-group">
-                <label>Phone Number *</label>
+              <div className="form-field">
+                <label className="field-label">Phone Number <span className="required-star">*</span></label>
                 <input
                   type="tel"
-                  required
+                  className={`form-input ${formErrors.phone ? 'invalid' : ''}`}
                   placeholder="(212) 555-0199"
                   value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, phone: e.target.value });
+                    if (formErrors.phone) setFormErrors({ ...formErrors, phone: null });
+                  }}
                 />
+                {formErrors.phone && <span className="field-error">{formErrors.phone}</span>}
               </div>
             </div>
 
-            <div className="form-group">
-              <label>Special Notes or Requests (Optional)</label>
+            <div className="form-field">
+              <label className="field-label">Special Notes or Requests (Optional)</label>
               <textarea
+                className="form-textarea"
                 rows="3"
-                placeholder="Let us know about hair sensitivities, preferences, or questions..."
+                placeholder="Mention hair length, preferences, or sensitivities..."
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
               />
@@ -359,20 +419,20 @@ export default function App() {
             <div className="step-actions">
               <button type="button" className="btn-secondary" onClick={() => setStep(2)}>Back</button>
               <button type="submit" className="btn-primary" disabled={submitting}>
-                {submitting ? 'Confirming Reservation...' : 'Complete Reservation'}
+                {submitting ? 'Processing...' : 'Complete Reservation'}
               </button>
             </div>
           </form>
         </section>
       )}
 
-      {/* STEP 4: CONFIRMATION RECEIPT */}
+      {/* STEP 4: SUCCESS CONFIRMATION RECEIPT */}
       {step === 4 && bookingResult && (
         <section className="step-content confirmation-view">
           <div className="success-badge-icon">✓</div>
           <h2 className="confirmation-title">Reservation Confirmed!</h2>
           <p className="confirmation-subtext">
-            A confirmation receipt has been sent to <strong>{formData.email}</strong>.
+            A confirmation email has been dispatched to <strong>{formData.email}</strong>.
           </p>
 
           <div className="cancellation-code-card">
@@ -390,8 +450,8 @@ export default function App() {
               <strong>{selectedService.name}</strong>
             </div>
             <div className="summary-item">
-              <span>Date & Time:</span>
-              <strong>{new Date(selectedSlot.isoStart).toLocaleString()}</strong>
+              <span>Time Slot:</span>
+              <strong>{selectedSlot.timeDisplay}</strong>
             </div>
             <div className="summary-item">
               <span>Salon Location:</span>
@@ -405,6 +465,7 @@ export default function App() {
               setStep(1);
               setSelectedService(null);
               setSelectedSlot(null);
+              setFormData({ full_name: '', email: '', phone: '', notes: '' });
               setBookingResult(null);
             }}
           >
