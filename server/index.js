@@ -21,7 +21,6 @@ const pool = new Pool({
 // Comprehensive DB Auto-Migration on Startup
 const initDb = async () => {
   try {
-    // 1. Ensure table exists with all required columns
     await pool.query(`
       CREATE TABLE IF NOT EXISTS appointments (
         id SERIAL PRIMARY KEY,
@@ -40,7 +39,6 @@ const initDb = async () => {
       );
     `);
 
-    // 2. Add missing columns and remove strict constraints safely
     const alterQueries = [
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_id INTEGER;',
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_name VARCHAR(255);',
@@ -176,7 +174,6 @@ app.post('/api/appointments', async (req, res) => {
   }
 
   try {
-    // A. Fetch service details or fallback to default
     let service = { name: 'Salon Service', duration_minutes: 60, price_display: 'Upon Consultation' };
     try {
       const serviceRes = await pool.query('SELECT * FROM services WHERE id = $1', [service_id]);
@@ -187,7 +184,6 @@ app.post('/api/appointments', async (req, res) => {
       console.log('Using fallback service details');
     }
 
-    // B. Calculate start and end time objects
     const durationMins = service.duration_minutes || 45;
     const requestedStartObj = new Date(start_time);
     const requestedEndObj = new Date(requestedStartObj.getTime() + durationMins * 60000);
@@ -195,7 +191,6 @@ app.post('/api/appointments', async (req, res) => {
     const requestedStartISO = requestedStartObj.toISOString();
     const requestedEndISO = requestedEndObj.toISOString();
 
-    // C. Collision Check against existing non-cancelled bookings
     try {
       const conflictCheckQuery = `
         SELECT id, start_time, end_time, duration_minutes 
@@ -226,10 +221,8 @@ app.post('/api/appointments', async (req, res) => {
       console.log('Skipping collision check step');
     }
 
-    // D. Generate 6-character reference code
     const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-    // E. Insert Appointment into PostgreSQL (Including start_time AND end_time)
     const insertQuery = `
       INSERT INTO appointments 
       (service_id, service_name, duration_minutes, start_time, end_time, full_name, email, phone, notes, cancellation_code, status)
@@ -252,7 +245,6 @@ app.post('/api/appointments', async (req, res) => {
     const { rows } = await pool.query(insertQuery, insertValues);
     const newAppointment = rows[0];
 
-    // F. Format Date strictly in America/New_York Timezone for Emails
     const formattedDateStr = requestedStartObj.toLocaleString('en-US', {
       timeZone: 'America/New_York',
       weekday: 'long',
@@ -264,7 +256,7 @@ app.post('/api/appointments', async (req, res) => {
       hour12: true,
     }) + ' (New York Time)';
 
-    // G. Prepare Customer and Admin HTML Emails
+    // Customer Confirmation Email HTML with Structured Policies
     const customerHtml = `
       <div style="font-family: 'Montserrat', Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e6d3a7; border-radius: 12px; padding: 30px; color: #1f1f1f;">
         <div style="text-align: center; border-bottom: 1px solid #e6e1da; padding-bottom: 20px; margin-bottom: 25px;">
@@ -288,6 +280,16 @@ app.post('/api/appointments', async (req, res) => {
           <li><strong>Location:</strong> 310 East 44th St, Manhattan, NY 10017</li>
         </ul>
 
+        <!-- Structured Salon Policies Box -->
+        <div style="background-color: #faf8f5; border: 1px solid #e6d3a7; border-radius: 8px; padding: 18px; margin: 25px 0;">
+          <h4 style="color: #b88e28; margin: 0 0 12px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Salon Policies & Guidelines</h4>
+          <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #444; line-height: 1.6;">
+            <li style="margin-bottom: 8px;"><strong>In-Salon Payment:</strong> Paid at salon upon completion. Cash & major credit cards accepted <em>(No American Express)</em>.</li>
+            <li style="margin-bottom: 8px;"><strong>Redo Policy:</strong> We fix or redo unsatisfactory work; no monetary refunds are issued.</li>
+            <li><strong>24-Hour Cancellation:</strong> Must cancel at least 24 hours prior. Cancellations within 24 hours incur a <strong>50% service charge</strong>.</li>
+          </ul>
+        </div>
+
         <div style="text-align: center; border-top: 1px solid #e6e1da; padding-top: 15px; margin-top: 30px; font-size: 11px; color: #888;">
           Le Salon NYC • 310 East 44th St, New York, NY • (212) 949-6693
         </div>
@@ -310,7 +312,6 @@ app.post('/api/appointments', async (req, res) => {
       </div>
     `;
 
-    // Dispatch Emails non-blockingly
     sendBrevoEmail({
       to: email,
       subject: `Reservation Confirmed — Le Salon NYC (${cancellation_code})`,

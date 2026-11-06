@@ -75,10 +75,9 @@ export default function App() {
   // Strict New York Time Slot Calculation
   const calculateTimeSlots = (dateStr, durationMins, bookedList) => {
     const slots = [];
-    const openMinutes = 9 * 60;   // 9:00 AM (540 mins)
-    const closeMinutes = 19 * 60; // 7:00 PM (1140 mins)
+    const openMinutes = 9 * 60;   // 9:00 AM
+    const closeMinutes = 19 * 60; // 7:00 PM
 
-    // Detect if New York is currently in Daylight Saving Time (EDT -04:00 vs EST -05:00)
     const testDate = new Date(`${dateStr}T12:00:00Z`);
     const nyTimeStr = testDate.toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' });
     const nyOffset = nyTimeStr.includes('EDT') ? '-04:00' : '-05:00';
@@ -93,12 +92,10 @@ export default function App() {
       const endH = Math.floor(endMins / 60);
       const endM = endMins % 60;
 
-      // Create explicit ISO timestamp locked to New York offset
       const isoStart = `${dateStr}T${pad(startH)}:${pad(startM)}:00${nyOffset}`;
       const slotStartMs = new Date(isoStart).getTime();
       const slotEndMs = slotStartMs + durationMins * 60000;
 
-      // Check collision against database booked slots
       const isBooked = bookedList.some((booking) => {
         if (!booking.start_time) return false;
         const bStartMs = new Date(booking.start_time).getTime();
@@ -108,7 +105,6 @@ export default function App() {
         return slotStartMs < bEndMs && slotEndMs > bStartMs;
       });
 
-      // Format 12-hour display label (e.g. "9:00 AM – 11:00 AM")
       const format12H = (h, m) => {
         const ampm = h >= 12 ? 'PM' : 'AM';
         const h12 = h % 12 === 0 ? 12 : h % 12;
@@ -338,7 +334,7 @@ export default function App() {
         </section>
       )}
 
-      {/* STEP 3: CLIENT DETAILS FORM */}
+      {/* STEP 3: CLIENT DETAILS FORM WITH SALON POLICIES */}
       {step === 3 && selectedService && selectedSlot && (
         <section className="step-content">
           <div className="section-header">
@@ -367,6 +363,31 @@ export default function App() {
                 <span className="cell-val gold-text">{selectedService.price_display}</span>
               </div>
             </div>
+          </div>
+
+          {/* Clean Salon Policies & Terms Card */}
+          <div className="policies-card">
+            <h3 className="policies-title">Salon Policies & Terms</h3>
+            <ul className="policies-list">
+              <li className="policy-item">
+                <span className="policy-bullet">💳</span>
+                <div>
+                  <strong>In-Salon Payment:</strong> Payment is due at the salon upon service completion. We accept Cash, Visa, MasterCard, and Discover. <em>(American Express is NOT accepted)</em>.
+                </div>
+              </li>
+              <li className="policy-item">
+                <span className="policy-bullet">✨</span>
+                <div>
+                  <strong>Satisfaction Guarantee:</strong> If you are unsatisfied with your hair outcome, we will happily fix or redo your service. We do not offer monetary refunds under any circumstances.
+                </div>
+              </li>
+              <li className="policy-item">
+                <span className="policy-bullet">⏰</span>
+                <div>
+                  <strong>24-Hour Cancellation Policy:</strong> Cancellations must be made at least 24 hours prior to your scheduled time. Cancellations made within 24 hours or last-minute no-shows will be charged a <strong>50% service fee</strong>.
+                </div>
+              </li>
+            </ul>
           </div>
 
           <form onSubmit={handleFormSubmit} className="client-form-card" noValidate>
@@ -440,7 +461,7 @@ export default function App() {
         </section>
       )}
 
-      {/* STEP 4: SUCCESS CONFIRMATION RECEIPT */}
+      {/* STEP 4: SUCCESS CONFIRMATION RECEIPT WITH POLICY REMINDERS */}
       {step === 4 && bookingResult && (
         <section className="step-content confirmation-view">
           <div className="success-badge-icon">✓</div>
@@ -471,6 +492,16 @@ export default function App() {
               <span>Salon Location:</span>
               <strong>310 East 44th St, Manhattan, NY 10017</strong>
             </div>
+          </div>
+
+          {/* Confirmation Screen Policy Box */}
+          <div className="policies-card confirmation-policies">
+            <h4 className="policies-title-sm">Important Reminders</h4>
+            <ul className="policies-list-sm">
+              <li><strong>Payment:</strong> Pay at salon via Cash or Card (No American Express).</li>
+              <li><strong>Redo Policy:</strong> We fix/redo unsatisfactory work; no monetary refunds.</li>
+              <li><strong>Cancellation:</strong> Notify us at least 24h prior to avoid a 50% charge.</li>
+            </ul>
           </div>
 
           <button

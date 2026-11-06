@@ -421,6 +421,66 @@ body {
   border-color: var(--gold-primary);
   box-shadow: 0 0 0 3px rgba(184, 142, 40, 0.12);
 }
+/* ==========================================================================
+   SALON POLICIES CARD STYLING
+   ========================================================================== */
+
+.policies-card {
+  background: var(--gold-light-bg);
+  border: 1px solid var(--gold-border);
+  border-radius: var(--radius-card);
+  padding: 22px 26px;
+  margin-bottom: 28px;
+}
+
+.policies-title {
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  color: var(--charcoal-dark);
+  margin-bottom: 14px;
+}
+
+.policies-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.policy-item {
+  display: flex;
+  gap: 12px;
+  font-size: 0.88rem;
+  color: #333;
+  line-height: 1.5;
+}
+
+.policy-bullet {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.confirmation-policies {
+  margin-top: 25px;
+  text-align: left;
+  padding: 18px 22px;
+}
+
+.policies-title-sm {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--gold-primary);
+  margin-bottom: 10px;
+}
+
+.policies-list-sm {
+  padding-left: 18px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
 
 .form-input.invalid {
   border-color: #d9534f;
