@@ -18,6 +18,21 @@ const pool = new Pool({
   },
 });
 
+// Auto-repair DB schema on server start (Ensures missing columns are added automatically)
+const initDb = async () => {
+  try {
+    await pool.query(`
+      ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_name VARCHAR(255);
+      ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_minutes INTEGER DEFAULT 45;
+      ALTER TABLE services ADD COLUMN IF NOT EXISTS duration_minutes INTEGER DEFAULT 45;
+    `);
+    console.log('Database schema verified & updated successfully.');
+  } catch (err) {
+    console.error('Database schema initialization error:', err);
+  }
+};
+initDb();
+
 // Helper: Send Transactional Email via Brevo HTTPS REST API
 async function sendBrevoEmail({ to, subject, htmlContent }) {
   const apiKey = process.env.BREVO_API_KEY;
@@ -100,7 +115,6 @@ app.get('/api/booked-slots', async (req, res) => {
   }
 
   try {
-    // Search start and end of day in UTC bounds corresponding to NY date
     const startOfDay = `${date}T00:00:00.000Z`;
     const endOfDay = `${date}T23:59:59.999Z`;
 
@@ -173,7 +187,7 @@ app.post('/api/appointments', async (req, res) => {
     const insertValues = [
       service_id,
       service.name,
-      service.duration_minutes,
+      service.duration_minutes || 45,
       start_time,
       full_name,
       email,
@@ -215,7 +229,7 @@ app.post('/api/appointments', async (req, res) => {
         <h3 style="color: #121212; border-bottom: 1px solid #eee; padding-bottom: 8px;">Appointment Details</h3>
         <ul style="list-style: none; padding: 0; line-height: 1.8;">
           <li><strong>Service:</strong> ${service.name}</li>
-          <li><strong>Duration:</strong> ${service.duration_minutes} Minutes</li>
+          <li><strong>Duration:</strong> ${service.duration_minutes || 45} Minutes</li>
           <li><strong>Date & Time:</strong> ${formattedDateStr}</li>
           <li><strong>Price:</strong> ${service.price_display || '$' + service.starting_price}</li>
           <li><strong>Location:</strong> 310 East 44th St, Manhattan, NY 10017</li>
@@ -241,7 +255,7 @@ app.post('/api/appointments', async (req, res) => {
           <li><strong>Customer Name:</strong> ${full_name}</li>
           <li><strong>Customer Email:</strong> ${email}</li>
           <li><strong>Customer Phone:</strong> ${phone}</li>
-          <li><strong>Reserved Service:</strong> ${service.name} (${service.duration_minutes} mins)</li>
+          <li><strong>Reserved Service:</strong> ${service.name} (${service.duration_minutes || 45} mins)</li>
           <li><strong>Scheduled Date & Time:</strong> ${formattedDateStr}</li>
           <li><strong>Special Notes:</strong> ${notes || 'None'}</li>
           <li><strong>Reference Code:</strong> ${cancellation_code}</li>
@@ -249,7 +263,7 @@ app.post('/api/appointments', async (req, res) => {
       </div>
     `;
 
-    // Dispatch both emails asynchronously via Brevo REST API
+    // Dispatch emails asynchronously via Brevo HTTP REST API
     await sendBrevoEmail({
       to: email,
       subject: `Reservation Confirmed — Le Salon NYC (${cancellation_code})`,
