@@ -83,7 +83,8 @@ export default function App() {
     setStep(2); // Instantly moves to Calendar page
   };
 
-  // Dynamic Time Slot Calculation
+  // Exact Operating Hours Schedule Generator
+  // Mon-Fri: 10:00 AM - 8:00 PM | Sat: 10:00 AM - 6:00 PM | Sun: Closed
   const generateTimeSlots = () => {
     if (!selectedDate || !selectedService) return [];
     
@@ -94,8 +95,8 @@ export default function App() {
     if (dayOfWeek === 0) return []; // Sunday Closed
 
     const duration = selectedService.duration_minutes || 45;
-    const startHour = 10;
-    const endHour = dayOfWeek === 6 ? 18 : 20;
+    const startHour = 10; // 10:00 AM opening time for all open days
+    const endHour = dayOfWeek === 6 ? 18 : 20; // Saturday closes at 6 PM (18:00), Mon-Fri close at 8 PM (20:00)
 
     const slots = [];
     let currentMins = startHour * 60;
@@ -481,7 +482,7 @@ export default function App() {
       {/* CONFIRMATION SCREEN */}
       {bookingResult && (
         <div className="salon-card-box" style={{ textAlign: 'center', padding: '36px' }}>
-          <div style={{ width: '60px', height: '60px', backgroundColor: '#FDF9EE', border: '2px solid var(--gold-accent)', color: 'var(--gold-accent)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem', margin: '0 auto 16px auto', lineHeight: '60px' }}>
+          <div style={{ width: '60px', height: '60px', backgroundColor: '#FDF9EE', border: '2px solid var(--gold-accent)', color: 'var(--gold-accent)', borderRadius: '50%', display: 'flex', items: 'center', justifyContent: 'center', fontSize: '1.8rem', margin: '0 auto 16px auto', lineHeight: '60px' }}>
             ✓
           </div>
           <h2 style={{ fontSize: '1.6rem', color: 'var(--gold-accent)', marginBottom: '8px' }}>Appointment Confirmed!</h2>

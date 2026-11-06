@@ -14,16 +14,14 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// Configure Nodemailer with strict timeouts (5 seconds max)
+// Configure Nodemailer Transporter with Gmail SMTP
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: process.env.SMTP_EMAIL,
-    pass: process.env.SMTP_PASSWORD,
+    user: process.env.SMTP_EMAIL || 'umarfarhan442@gmail.com',
+    pass: process.env.SMTP_PASSWORD, // Requires Gmail 16-character App Password
   },
-  connectionTimeout: 5000,
-  greetingTimeout: 5000,
-  socketTimeout: 5000,
+  connectionTimeout: 10000,
 });
 
 app.get('/', (req, res) => {
@@ -61,7 +59,7 @@ app.get('/api/booked-slots', async (req, res) => {
   }
 });
 
-// Create New Appointment (Lightning Fast Instant Response)
+// Create New Appointment
 app.post('/api/appointments', async (req, res) => {
   const { service_id, start_time, full_name, email, phone, notes } = req.body;
 
@@ -117,48 +115,54 @@ app.post('/api/appointments', async (req, res) => {
 
     const appointmentId = appointmentResult.rows[0].id;
 
-    // 6. Non-Blocking Async Email Dispatch (Fire-and-forget in background)
-    if (process.env.SMTP_EMAIL && process.env.SMTP_PASSWORD) {
-      const emailOptionsClient = {
-        from: `"Le Salon NYC" <${process.env.SMTP_EMAIL}>`,
-        to: email,
-        subject: `Appointment Confirmation - Le Salon NYC (${cancellation_code})`,
-        html: `
-          <div style="font-family: Arial, sans-serif; background-color: #faf8f5; color: #1a1a1a; padding: 24px; border-radius: 8px; border: 1px solid #e5e0d8;">
-            <h2 style="color: #b58900; font-family: Georgia, serif;">Le Salon NYC</h2>
-            <p>Dear ${full_name},</p>
-            <p>Your appointment has been confirmed!</p>
-            <ul style="line-height: 1.8;">
-              <li><strong>Service:</strong> ${serviceName}</li>
-              <li><strong>Date & Time:</strong> ${new Date(start_time).toLocaleString()}</li>
-              <li><strong>Location:</strong> 310 East 44th St, Manhattan, NY</li>
-              <li><strong>Cancellation Code:</strong> ${cancellation_code}</li>
-            </ul>
-            <p>Thank you for choosing Le Salon NYC.</p>
-          </div>
-        `,
-      };
+    // 6. Send Email Notifications (To Client AND to umarfarhan442@gmail.com)
+    const salonAdminEmail = process.env.SALON_NOTIFICATION_EMAIL || 'umarfarhan442@gmail.com';
+    const smtpUser = process.env.SMTP_EMAIL || 'umarfarhan442@gmail.com';
 
-      const emailOptionsSalon = {
-        from: `"Le Salon Booking" <${process.env.SMTP_EMAIL}>`,
-        to: process.env.SALON_NOTIFICATION_EMAIL || process.env.SMTP_EMAIL,
-        subject: `NEW BOOKING: ${full_name} - ${serviceName}`,
-        html: `
-          <h3>New Appointment Received</h3>
+    const emailOptionsClient = {
+      from: `"Le Salon NYC" <${smtpUser}>`,
+      to: email,
+      subject: `Appointment Confirmation - Le Salon NYC (${cancellation_code})`,
+      html: `
+        <div style="font-family: Arial, sans-serif; background-color: #faf8f5; color: #1a1a1a; padding: 24px; border-radius: 8px; border: 1px solid #e5e0d8;">
+          <h2 style="color: #b58900; font-family: Georgia, serif;">Le Salon NYC</h2>
+          <p>Dear ${full_name},</p>
+          <p>Your appointment has been confirmed!</p>
+          <ul style="line-height: 1.8;">
+            <li><strong>Service:</strong> ${serviceName}</li>
+            <li><strong>Date & Time:</strong> ${new Date(start_time).toLocaleString()}</li>
+            <li><strong>Location:</strong> 310 East 44th St, Manhattan, NY</li>
+            <li><strong>Cancellation Code:</strong> ${cancellation_code}</li>
+          </ul>
+          <p>Thank you for choosing Le Salon NYC.</p>
+        </div>
+      `,
+    };
+
+    const emailOptionsSalon = {
+      from: `"Le Salon Booking System" <${smtpUser}>`,
+      to: salonAdminEmail,
+      subject: `NEW BOOKING RECEIVED: ${full_name} - ${serviceName}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+          <h3>New Online Reservation Received</h3>
           <p><strong>Customer:</strong> ${full_name} (${email}, ${phone})</p>
           <p><strong>Service:</strong> ${serviceName}</p>
-          <p><strong>Time:</strong> ${new Date(start_time).toLocaleString()}</p>
+          <p><strong>Date & Time:</strong> ${new Date(start_time).toLocaleString()}</p>
           <p><strong>Notes:</strong> ${notes || 'None'}</p>
           <p><strong>Cancellation Code:</strong> ${cancellation_code}</p>
-        `,
-      };
+        </div>
+      `,
+    };
 
-      // Execute asynchronously without await so response is immediate
+    // Dispatch emails asynchronously in background
+    if (process.env.SMTP_PASSWORD) {
       transporter.sendMail(emailOptionsClient).catch((err) => console.error('Client email error:', err.message));
       transporter.sendMail(emailOptionsSalon).catch((err) => console.error('Salon email error:', err.message));
+    } else {
+      console.warn('SMTP_PASSWORD environment variable not set on Render. Email dispatch skipped.');
     }
 
-    // Return instant HTTP response (< 300ms)
     return res.json({
       success: true,
       message: 'Booking successfully confirmed!',
