@@ -1,34 +1,31 @@
 /* ==========================================================================
-   LE SALON NYC — Standalone Luxury Styling System
+   LE SALON NYC — Luxury Interactive Gold & Charcoal UI Engine
    ========================================================================== */
 
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Montserrat:wght@300;400;500;600;700&display=swap');
 
 :root {
   --font-serif: 'Cormorant Garamond', Georgia, serif;
-  --font-sans: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  
-  --gold: #b88e28;
-  --gold-light: #d4af37;
-  --gold-bg: #fcf9f2;
-  --gold-border: #e2d1a6;
-  
-  --dark-bg: #111111;
-  --dark-card: #1a1a1a;
-  --text-main: #222222;
+  --font-sans: 'Montserrat', sans-serif;
+
+  --gold-primary: #b88e28;
+  --gold-hover: #d4af37;
+  --gold-light-bg: #fcf8f0;
+  --gold-border: #e6d3a7;
+
+  --charcoal-dark: #121212;
+  --text-main: #1f1f1f;
   --text-muted: #666666;
-  --bg-light: #faf8f5;
-  --white: #ffffff;
+  --bg-page: #faf8f5;
+  --card-bg: #ffffff;
   
-  --border-color: #e6e1da;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --border-light: #e6e1da;
+  --radius-card: 14px;
+  --radius-btn: 8px;
+  --shadow-subtle: 0 4px 15px rgba(0, 0, 0, 0.04);
+  --shadow-hover: 0 12px 28px rgba(184, 142, 40, 0.18);
 }
 
-/* Base Resets */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -37,397 +34,364 @@
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--bg-light);
+  background-color: var(--bg-page);
   color: var(--text-main);
   line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
 }
 
-/* Layout Container */
-.app-container {
-  max-width: 900px;
+.salon-app {
+  max-width: 1000px;
   margin: 40px auto;
-  padding: 0 20px;
+  padding: 0 20px 60px;
 }
 
-/* Header Section */
+/* Header */
 .salon-header {
   text-align: center;
-  margin-bottom: 40px;
-  padding-bottom: 30px;
-  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 35px;
 }
 
-.salon-title {
-  font-family: var(--font-serif);
-  font-size: 2.8rem;
-  font-weight: 700;
+.brand-tagline {
+  font-size: 0.75rem;
   letter-spacing: 3px;
-  color: var(--text-main);
   text-transform: uppercase;
-  margin-bottom: 8px;
-}
-
-.salon-subtitle {
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  color: var(--gold);
+  color: var(--gold-primary);
   font-weight: 600;
 }
 
-/* Multi-Step Indicator Bar */
-.step-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 36px;
-  background: var(--white);
-  padding: 16px 24px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-sm);
+.brand-title {
+  font-family: var(--font-serif);
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--charcoal-dark);
+  margin: 4px 0;
 }
 
-.step-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.9rem;
-  font-weight: 500;
+.brand-address {
+  font-size: 0.85rem;
   color: var(--text-muted);
 }
 
-.step-item.active {
-  color: var(--gold);
-  font-weight: 700;
+/* Step Navigation Bar */
+.step-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--card-bg);
+  border: 1px solid var(--border-light);
+  border-radius: 50px;
+  padding: 14px 28px;
+  margin-bottom: 40px;
+  box-shadow: var(--shadow-subtle);
 }
 
-.step-number {
+.step-node {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0.45;
+  transition: all 0.3s ease;
+}
+
+.step-node.active {
+  opacity: 1;
+}
+
+.step-num {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #eee;
-  color: #666;
+  background: var(--border-light);
+  color: var(--text-main);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   font-weight: 700;
 }
 
-.step-item.active .step-number {
-  background: var(--gold);
-  color: var(--white);
+.step-node.active .step-num {
+  background: var(--gold-primary);
+  color: #fff;
 }
 
-.step-divider {
+.step-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.step-line {
   flex: 1;
-  height: 1px;
-  background: var(--border-color);
-  margin: 0 16px;
+  height: 2px;
+  background: var(--border-light);
+  margin: 0 15px;
+  transition: all 0.3s ease;
 }
 
-/* Category Filter Bar */
-.filter-bar {
+.step-line.active {
+  background: var(--gold-primary);
+}
+
+/* Category Filters */
+.category-filter {
   display: flex;
   gap: 10px;
+  margin-bottom: 25px;
   flex-wrap: wrap;
-  margin-bottom: 28px;
 }
 
-.filter-btn {
-  background: var(--white);
-  border: 1px solid var(--border-color);
-  padding: 8px 18px;
+.filter-chip {
+  background: var(--card-bg);
+  border: 1px solid var(--border-light);
+  padding: 8px 20px;
   border-radius: 30px;
   font-size: 0.85rem;
-  font-family: var(--font-sans);
-  color: var(--text-main);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s ease;
 }
 
-.filter-btn:hover,
-.filter-btn.active {
-  background: var(--text-main);
-  color: var(--white);
-  border-color: var(--text-main);
+.filter-chip.active,
+.filter-chip:hover {
+  background: var(--charcoal-dark);
+  color: #fff;
+  border-color: var(--charcoal-dark);
 }
 
-/* Service Card List */
-.services-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+/* Interactive Services Grid */
+.services-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 22px;
 }
 
 .service-card {
-  background: var(--white);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-card);
   padding: 24px;
   display: flex;
+  flex-direction: column;
   justify-content: space-between;
-  align-items: center;
   cursor: pointer;
-  transition: all 0.25s ease;
-  box-shadow: var(--shadow-sm);
+  transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
+  box-shadow: var(--shadow-subtle);
+  position: relative;
+  overflow: hidden;
 }
 
 .service-card:hover {
-  border-color: var(--gold);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-6px);
+  border-color: var(--gold-primary);
+  box-shadow: var(--shadow-hover);
 }
 
-.service-card.selected {
-  border-color: var(--gold);
-  background: var(--gold-bg);
+.card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
 }
 
-.service-info {
-  flex: 1;
-  padding-right: 20px;
+.category-badge {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--gold-primary);
+  font-weight: 700;
+}
+
+.service-duration {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
 .service-name {
   font-family: var(--font-serif);
-  font-size: 1.4rem;
+  font-size: 1.45rem;
   font-weight: 600;
-  color: var(--text-main);
-  margin-bottom: 6px;
+  margin-bottom: 20px;
+  color: var(--charcoal-dark);
 }
 
-.service-meta {
-  font-size: 0.82rem;
-  color: var(--text-muted);
+.card-bottom {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-top: 1px solid var(--border-light);
+  padding-top: 14px;
 }
 
-.service-action {
-  text-align: right;
-  min-width: 140px;
-}
-
-.service-price {
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: var(--gold);
-  margin-bottom: 6px;
-}
-
-.select-hint {
-  font-size: 0.75rem;
+.price-label {
+  display: block;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 1px;
   color: var(--text-muted);
 }
 
-/* Date & Time Step Styling */
-.section-title {
-  font-family: var(--font-serif);
-  font-size: 1.8rem;
-  font-weight: 600;
-  margin-bottom: 20px;
-  color: var(--text-main);
+.price-val {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--gold-primary);
 }
 
-.card-panel {
-  background: var(--white);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 28px;
-  margin-bottom: 24px;
-  box-shadow: var(--shadow-sm);
-}
-
-.form-group {
-  margin-bottom: 20px;
-}
-
-.form-label {
-  display: block;
+.card-btn {
+  background: transparent;
+  border: none;
+  color: var(--charcoal-dark);
   font-size: 0.85rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 8px;
-  color: var(--text-main);
+  cursor: pointer;
 }
 
-.form-input,
-.form-textarea {
+/* Date & Time Step */
+.booking-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-card);
+  padding: 30px;
+  margin-bottom: 30px;
+}
+
+.custom-date-input {
   width: 100%;
+  max-width: 300px;
   padding: 12px 16px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-sans);
-  font-size: 0.95rem;
-  outline: none;
-  transition: border-color 0.2s ease;
-  background: #fafafa;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-btn);
+  font-size: 1rem;
+  margin-top: 6px;
+  margin-bottom: 24px;
 }
 
-.form-input:focus,
-.form-textarea:focus {
-  border-color: var(--gold);
-  background: var(--white);
-}
-
-/* Slot Selection Grid */
 .slots-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
   gap: 12px;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 
-.slot-btn {
-  background: var(--white);
-  border: 1px solid var(--border-color);
+.slot-chip {
+  background: var(--card-bg);
+  border: 1px solid var(--border-light);
   padding: 12px 8px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--text-main);
   cursor: pointer;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   transition: all 0.2s ease;
 }
 
-.slot-btn:hover:not(.disabled) {
-  border-color: var(--gold);
-  color: var(--gold);
+.slot-chip:hover:not(:disabled) {
+  border-color: var(--gold-primary);
+  color: var(--gold-primary);
 }
 
-.slot-btn.selected {
-  background: var(--gold);
-  color: var(--white);
-  border-color: var(--gold);
+.slot-chip.selected {
+  background: var(--gold-primary);
+  color: #fff;
+  border-color: var(--gold-primary);
 }
 
-.slot-btn.disabled {
-  background: #f0f0f0;
-  color: #bbb;
+.slot-chip.booked {
+  background: #f4f4f4;
+  color: #aaa;
+  border-color: #e2e2e2;
   cursor: not-allowed;
-  border-color: #e0e0e0;
 }
 
-/* Action Buttons */
-.btn-row {
+.booked-subtext {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+/* Actions & Buttons */
+.step-actions {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-top: 28px;
+  margin-top: 30px;
 }
 
 .btn-primary {
-  background: var(--gold);
-  color: var(--white);
+  background: var(--gold-primary);
+  color: #fff;
   border: none;
-  padding: 14px 32px;
-  border-radius: var(--radius-sm);
+  padding: 14px 30px;
+  border-radius: var(--radius-btn);
   font-size: 0.9rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
   cursor: pointer;
   transition: background 0.2s ease;
 }
 
-.btn-primary:hover {
-  background: var(--gold-light);
+.btn-primary:hover:not(:disabled) {
+  background: var(--gold-hover);
+}
+
+.btn-primary:disabled {
+  background: #ccc;
+  cursor: not-allowed;
 }
 
 .btn-secondary {
   background: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-light);
   padding: 14px 24px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-btn);
   font-size: 0.9rem;
   cursor: pointer;
-  transition: all 0.2s ease;
 }
 
-.btn-secondary:hover {
-  color: var(--text-main);
-  border-color: var(--text-main);
-}
-
-/* Confirmation Success Panel */
-.confirmation-card {
-  background: var(--white);
-  border: 1px solid var(--gold-border);
-  border-radius: var(--radius-lg);
-  padding: 40px;
+/* Confirmation Page */
+.confirmation-view {
   text-align: center;
-  box-shadow: var(--shadow-md);
+  background: var(--card-bg);
+  border: 1px solid var(--gold-border);
+  border-radius: var(--radius-card);
+  padding: 45px 30px;
 }
 
-.confirmation-icon {
-  width: 64px;
-  height: 64px;
-  background: var(--gold-bg);
-  border: 2px solid var(--gold);
+.success-badge-icon {
+  width: 60px;
+  height: 60px;
+  background: var(--gold-light-bg);
+  border: 2px solid var(--gold-primary);
+  color: var(--gold-primary);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 20px;
-  color: var(--gold);
   font-size: 1.8rem;
-  font-weight: bold;
+  margin: 0 auto 20px;
 }
 
-.confirmation-title {
-  font-family: var(--font-serif);
-  font-size: 2.2rem;
-  color: var(--text-main);
-  margin-bottom: 10px;
-}
-
-.confirmation-code-box {
-  background: var(--gold-bg);
-  border: 1px dashed var(--gold);
+.cancellation-code-card {
+  background: var(--gold-light-bg);
+  border: 1px dashed var(--gold-primary);
   padding: 16px;
-  border-radius: var(--radius-md);
-  margin: 24px 0;
+  border-radius: var(--radius-btn);
   display: inline-block;
+  margin: 25px 0;
 }
 
-.confirmation-code-text {
-  font-size: 0.8rem;
+.code-label {
+  display: block;
+  font-size: 0.75rem;
   text-transform: uppercase;
-  letter-spacing: 1px;
   color: var(--text-muted);
 }
 
-.confirmation-code-val {
+.code-val {
   font-family: monospace;
   font-size: 1.6rem;
   font-weight: 700;
-  color: var(--gold);
-  letter-spacing: 3px;
-}
-
-/* Responsive adjustments */
-@media (max-width: 640px) {
-  .service-card {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  .service-action {
-    text-align: left;
-  }
-  .step-bar {
-    padding: 12px 14px;
-  }
-  .step-text {
-    display: none;
-  }
+  color: var(--gold-primary);
+  letter-spacing: 2px;
 }

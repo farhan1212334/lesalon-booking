@@ -1,512 +1,417 @@
 import React, { useState, useEffect } from 'react';
+import './index.css';
 
-const API_BASE_URL = 'https://lesalon-api.onrender.com';
+const API_BASE_URL = 'https://lesalon-api.onrender.com/api';
 
 export default function App() {
+  const [step, setStep] = useState(1);
   const [services, setServices] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedService, setSelectedService] = useState(null);
   
-  // Date & Time states
-  const [selectedDate, setSelectedDate] = useState('');
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState(null);
-  const [bookedAppointments, setBookedAppointments] = useState([]);
+  // Date & Slot state
+  const [selectedDate, setSelectedDate] = useState(
+    new Date().toISOString().split('T')[0]
+  );
+  const [bookedSlots, setBookedSlots] = useState([]);
+  const [availableSlots, setAvailableSlots] = useState([]);
+  const [selectedSlot, setSelectedSlot] = useState(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // Calendar state
-  const [calMonth, setCalMonth] = useState(new Date().getMonth());
-  const [calYear, setCalYear] = useState(new Date().getFullYear());
-
-  // Form states
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [notes, setNotes] = useState('');
-
-  // Step state
-  const [step, setStep] = useState(1);
-  const [loadingServices, setLoadingServices] = useState(true);
+  // Form state
+  const [formData, setFormData] = useState({
+    full_name: '',
+    email: '',
+    phone: '',
+    notes: '',
+  });
   const [submitting, setSubmitting] = useState(false);
   const [bookingResult, setBookingResult] = useState(null);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
+  // 1. Load Services on Mount
   useEffect(() => {
-    fetchServices();
+    fetch(`${API_BASE_URL}/services`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setServices(data);
+      })
+      .catch((err) => console.error('Error loading services:', err));
   }, []);
 
+  // 2. Fetch Booked Slots & Compute Duration Slots when Date/Service Changes
   useEffect(() => {
-    if (selectedDate) {
-      fetchBookedSlots(selectedDate);
-    }
-  }, [selectedDate]);
+    if (!selectedDate || !selectedService) return;
 
-  const fetchServices = async () => {
-    setLoadingServices(true);
-    setErrorMessage('');
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/services`);
-      if (!response.ok) throw new Error(`Server status: ${response.status}`);
-      const data = await response.json();
-      setServices(data);
-    } catch (err) {
-      console.error('Error fetching services:', err);
-      setErrorMessage('Backend server waking up (~30s cold start). Please click Retry.');
-    } finally {
-      setLoadingServices(false);
-    }
-  };
-
-  const fetchBookedSlots = async (dateStr) => {
     setLoadingSlots(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/booked-slots?date=${dateStr}`);
-      if (res.ok) {
-        const data = await res.json();
-        setBookedAppointments(data);
-      }
-    } catch (err) {
-      console.error('Error fetching booked slots:', err);
-    } finally {
-      setLoadingSlots(false);
-    }
-  };
+    fetch(`${API_BASE_URL}/booked-slots?date=${selectedDate}`)
+      .then((res) => res.json())
+      .then((data) => {
+        const booked = Array.isArray(data) ? data : [];
+        setBookedSlots(booked);
+        calculateTimeSlots(selectedDate, selectedService.duration_minutes, booked);
+      })
+      .catch((err) => {
+        console.error('Error fetching booked slots:', err);
+        calculateTimeSlots(selectedDate, selectedService.duration_minutes, []);
+      })
+      .finally(() => setLoadingSlots(false));
+  }, [selectedDate, selectedService]);
 
-  const categories = ['All', ...new Set(services.map((s) => s.category || 'General'))];
-  const filteredServices = selectedCategory === 'All'
-    ? services
-    : services.filter((s) => (s.category || 'General') === selectedCategory);
-
-  // Automatic Step Transition on Service Select
-  const handleServiceSelect = (service) => {
-    setSelectedService(service);
-    setSelectedTimeSlot(null);
-    setStep(2); // Instantly moves to Calendar page
-  };
-
-  // Exact Operating Hours Schedule Generator
-  // Mon-Fri: 10:00 AM - 8:00 PM | Sat: 10:00 AM - 6:00 PM | Sun: Closed
-  const generateTimeSlots = () => {
-    if (!selectedDate || !selectedService) return [];
-    
-    const [year, month, day] = selectedDate.split('-').map(Number);
-    const dateObj = new Date(year, month - 1, day);
-    const dayOfWeek = dateObj.getDay();
-
-    if (dayOfWeek === 0) return []; // Sunday Closed
-
-    const duration = selectedService.duration_minutes || 45;
-    const startHour = 10; // 10:00 AM opening time for all open days
-    const endHour = dayOfWeek === 6 ? 18 : 20; // Saturday closes at 6 PM (18:00), Mon-Fri close at 8 PM (20:00)
-
+  // Dynamic Slot Calculation with Collision Detection
+  const calculateTimeSlots = (dateStr, durationMins, bookedList) => {
     const slots = [];
-    let currentMins = startHour * 60;
-    const endMins = endHour * 60;
+    const openHour = 9;  // 9:00 AM
+    const closeHour = 19; // 7:00 PM (19:00)
 
-    while (currentMins + duration <= endMins) {
-      const slotStart = currentMins;
-      const slotEnd = currentMins + duration;
+    const startOfDay = new Date(`${dateStr}T00:00:00`);
+    const salonOpenTime = new Date(startOfDay.getTime() + openHour * 60 * 60 * 1000);
+    const salonCloseTime = new Date(startOfDay.getTime() + closeHour * 60 * 60 * 1000);
 
-      const isBooked = bookedAppointments.some((b) => {
-        const bDate = new Date(b.start_time);
-        const bStartMins = bDate.getHours() * 60 + bDate.getMinutes();
-        const bEndMins = bStartMins + (parseInt(b.duration_minutes) || 30);
-        return Math.max(slotStart, bStartMins) < Math.min(slotEnd, bEndMins);
+    let currentTime = new Date(salonOpenTime);
+
+    while (currentTime.getTime() + durationMins * 60000 <= salonCloseTime.getTime()) {
+      const slotStart = new Date(currentTime);
+      const slotEnd = new Date(slotStart.getTime() + durationMins * 60000);
+
+      // Check collision with existing database bookings
+      const isBooked = bookedList.some((booking) => {
+        const bStart = new Date(booking.start_time).getTime();
+        const bEnd = bStart + (booking.duration_minutes || 45) * 60000;
+        return slotStart.getTime() < bEnd && slotEnd.getTime() > bStart;
       });
 
-      const formatTime = (mins) => {
-        const h = Math.floor(mins / 60);
-        const m = mins % 60;
-        const ampm = h >= 12 ? 'PM' : 'AM';
-        const displayH = h % 12 === 0 ? 12 : h % 12;
-        const displayM = m < 10 ? `0${m}` : m;
-        return `${displayH}:${displayM} ${ampm}`;
-      };
-
-      const startHRaw = Math.floor(slotStart / 60);
-      const startMRaw = slotStart % 60;
-      const timeVal = `${startHRaw < 10 ? '0' + startHRaw : startHRaw}:${startMRaw < 10 ? '0' + startMRaw : startMRaw}`;
+      const formattedTime = slotStart.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      });
 
       slots.push({
-        label: `${formatTime(slotStart)} - ${formatTime(slotEnd)}`,
-        timeValue: timeVal,
-        isBooked: isBooked,
+        timeDisplay: formattedTime,
+        isoStart: slotStart.toISOString(),
+        isBooked,
       });
 
-      currentMins += duration;
+      // Increment in 30-minute step intervals across the business day
+      currentTime = new Date(currentTime.getTime() + 30 * 60000);
     }
-    return slots;
+
+    setAvailableSlots(slots);
   };
 
-  const handleSubmitBooking = async (e) => {
+  const handleServiceSelect = (service) => {
+    setSelectedService(service);
+    setSelectedSlot(null);
+    setStep(2);
+  };
+
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedService || !selectedDate || !selectedTimeSlot || !fullName || !email || !phone) {
-      setErrorMessage('Please complete all required fields.');
+    if (!selectedSlot || !formData.full_name || !formData.email || !formData.phone) {
+      setErrorMsg('Please fill out all required fields.');
       return;
     }
 
     setSubmitting(true);
-    setErrorMessage('');
-
-    const payload = {
-      service_id: selectedService.id,
-      start_time: `${selectedDate}T${selectedTimeSlot.timeValue}:00`,
-      full_name: fullName,
-      email: email,
-      phone: phone,
-      notes: notes,
-    };
+    setErrorMsg('');
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/appointments`, {
+      const payload = {
+        service_id: selectedService.id,
+        start_time: selectedSlot.isoStart,
+        full_name: formData.full_name,
+        email: formData.email,
+        phone: formData.phone,
+        notes: formData.notes,
+      };
+
+      const res = await fetch(`${API_BASE_URL}/appointments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
       const data = await res.json();
-
-      if (res.ok && data.success) {
+      if (data.success) {
         setBookingResult(data);
-        setStep(3);
+        setStep(4); // Success screen
       } else {
-        setErrorMessage(data.message || 'Failed to confirm booking.');
+        setErrorMsg(data.message || 'Booking failed. Please try another slot.');
       }
     } catch (err) {
-      console.error('Submission error:', err);
-      setErrorMessage('Network error connecting to booking engine.');
+      setErrorMsg('Network error. Please try again.');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleReset = () => {
-    setSelectedService(null);
-    setSelectedDate('');
-    setSelectedTimeSlot(null);
-    setFullName('');
-    setEmail('');
-    setPhone('');
-    setNotes('');
-    setErrorMessage('');
-    setBookingResult(null);
-    setStep(1);
-  };
-
-  const formatPrice = (service) => {
-    if (service.price_mode === 'consultation' || !service.price) return 'Consultation Required';
-    const priceStr = `$${parseFloat(service.price).toFixed(2)}`;
-    return service.price_mode === 'starting' ? `Starting at ${priceStr}` : priceStr;
-  };
-
-  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
-  const firstDayIndex = new Date(calYear, calMonth, 1).getDay();
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
-
-  const handlePrevMonth = () => {
-    if (calMonth === 0) {
-      setCalMonth(11);
-      setCalYear(calYear - 1);
-    } else {
-      setCalMonth(calMonth - 1);
-    }
-  };
-
-  const handleNextMonth = () => {
-    if (calMonth === 11) {
-      setCalMonth(0);
-      setCalYear(calYear + 1);
-    } else {
-      setCalMonth(calMonth + 1);
-    }
-  };
-
-  const availableSlots = generateTimeSlots();
+  const categories = ['All', ...new Set(services.map((s) => s.category).filter(Boolean))];
+  const filteredServices = selectedCategory === 'All'
+    ? services
+    : services.filter((s) => s.category === selectedCategory);
 
   return (
-    <div className="salon-container">
-      {/* Header */}
+    <div className="salon-app">
+      {/* Brand Header */}
       <header className="salon-header">
-        <h1>LE SALON NYC</h1>
-        <p>310 East 44th St, Manhattan • (212) 949-6693 • Online Reservations</p>
+        <span className="brand-tagline">Manhattan Flagship</span>
+        <h1 className="brand-title">LE SALON NYC</h1>
+        <p className="brand-address">310 East 44th St, New York, NY • (212) 949-6693</p>
       </header>
 
-      {/* Progress Bar */}
-      <div className="steps-bar">
-        <div className={`step-item ${step >= 1 ? 'active' : ''}`}>
-          <span className="step-number">1</span> Select Service
+      {/* Step Progress Bar */}
+      <nav className="step-bar">
+        <div className={`step-node ${step >= 1 ? 'active' : ''}`}>
+          <span className="step-num">1</span>
+          <span className="step-label">Select Service</span>
         </div>
-        <div className="step-divider"></div>
-        <div className={`step-item ${step >= 2 ? 'active' : ''}`}>
-          <span className="step-number">2</span> Date & Time
+        <div className={`step-line ${step >= 2 ? 'active' : ''}`} />
+        <div className={`step-node ${step >= 2 ? 'active' : ''}`}>
+          <span className="step-num">2</span>
+          <span className="step-label">Date & Time</span>
         </div>
-        <div className="step-divider"></div>
-        <div className={`step-item ${step === 3 ? 'active' : ''}`}>
-          <span className="step-number">3</span> Confirmation
+        <div className={`step-line ${step >= 3 ? 'active' : ''}`} />
+        <div className={`step-node ${step >= 3 ? 'active' : ''}`}>
+          <span className="step-num">3</span>
+          <span className="step-label">Client Details</span>
         </div>
-      </div>
+      </nav>
 
-      {errorMessage && (
-        <div className="alert-error">
-          <span>{errorMessage}</span>
-          <button onClick={fetchServices} className="btn-secondary" style={{ padding: '4px 10px' }}>
-            Retry
-          </button>
-        </div>
-      )}
-
-      {/* STEP 1: SERVICE SELECTION */}
+      {/* STEP 1: SERVICE SELECTION GRID */}
       {step === 1 && (
-        <div>
-          <div className="category-tabs">
+        <section className="step-content">
+          <div className="section-header">
+            <h2>Select a Service</h2>
+            <p>Choose from our luxury hair care, coloring, and styling treatments.</p>
+          </div>
+
+          {/* Category Filter Pills */}
+          <div className="category-filter">
             {categories.map((cat) => (
               <button
                 key={cat}
+                className={`filter-chip ${selectedCategory === cat ? 'active' : ''}`}
                 onClick={() => setSelectedCategory(cat)}
-                className={`tab-btn ${selectedCategory === cat ? 'active' : ''}`}
               >
                 {cat}
               </button>
             ))}
           </div>
 
-          {loadingServices ? (
-            <div className="salon-card-box" style={{ textAlign: 'center', padding: '40px' }}>
-              <p style={{ color: 'var(--text-muted)' }}>Loading services catalog...</p>
-            </div>
-          ) : (
-            <div className="services-grid">
-              {filteredServices.map((service) => {
-                const isSelected = selectedService?.id === service.id;
-                return (
-                  <div
-                    key={service.id}
-                    onClick={() => handleServiceSelect(service)}
-                    className={`service-card ${isSelected ? 'selected' : ''}`}
-                  >
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                        <h3 className="service-title">{service.name}</h3>
-                        <span className="service-price">{formatPrice(service)}</span>
-                      </div>
-                      <p className="service-meta">⏱ {service.duration_minutes} Mins • {service.category || 'General'}</p>
-                    </div>
-                    <div className="service-footer">
-                      <span>Click to select & continue</span>
-                      <div className="check-circle">{isSelected ? '✓' : ''}</div>
-                    </div>
+          {/* Service Cards Grid */}
+          <div className="services-grid">
+            {filteredServices.map((service) => (
+              <div
+                key={service.id}
+                className={`service-card ${selectedService?.id === service.id ? 'selected' : ''}`}
+                onClick={() => handleServiceSelect(service)}
+              >
+                <div className="card-top">
+                  <span className="category-badge">{service.category || 'Service'}</span>
+                  <span className="service-duration">⏱ {service.duration_minutes} Mins</span>
+                </div>
+                <h3 className="service-name">{service.name}</h3>
+                <div className="card-bottom">
+                  <div className="price-tag">
+                    <span className="price-label">Starting at</span>
+                    <span className="price-val">${service.starting_price}</span>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  <button className="card-btn">Select Slot →</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
-      {/* STEP 2: INTERACTIVE CALENDAR & TIME SLOTS */}
+      {/* STEP 2: CALENDAR & DYNAMIC TIME SLOTS */}
       {step === 2 && selectedService && (
-        <div className="salon-card-box">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <div>
-              <h2 style={{ fontSize: '1.4rem' }}>Select Date & Time Slot</h2>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Service: <strong>{selectedService.name}</strong> ({selectedService.duration_minutes} Mins)
-              </p>
-            </div>
-            <button onClick={() => setStep(1)} className="btn-secondary">
-              ← Change Service
-            </button>
-          </div>
-
-          {/* Interactive Calendar Component */}
-          <div className="calendar-wrapper">
-            <div className="calendar-header">
-              <button onClick={handlePrevMonth} className="btn-secondary" style={{ padding: '4px 12px' }}>‹</button>
-              <h3 style={{ fontSize: '1.1rem' }}>{monthNames[calMonth]} {calYear}</h3>
-              <button onClick={handleNextMonth} className="btn-secondary" style={{ padding: '4px 12px' }}>›</button>
-            </div>
-
-            <div className="calendar-grid">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-                <div key={d} className="cal-day-label">{d}</div>
-              ))}
-
-              {Array.from({ length: firstDayIndex }).map((_, i) => (
-                <div key={`empty-${i}`}></div>
-              ))}
-
-              {Array.from({ length: daysInMonth }).map((_, i) => {
-                const dayNum = i + 1;
-                const formattedM = (calMonth + 1).toString().padStart(2, '0');
-                const formattedD = dayNum.toString().padStart(2, '0');
-                const dateStr = `${calYear}-${formattedM}-${formattedD}`;
-                
-                const dateObj = new Date(calYear, calMonth, dayNum);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-
-                const isPast = dateObj < today;
-                const isSunday = dateObj.getDay() === 0;
-                const isSelected = selectedDate === dateStr;
-
-                return (
-                  <button
-                    key={dateStr}
-                    disabled={isPast || isSunday}
-                    onClick={() => {
-                      setSelectedDate(dateStr);
-                      setSelectedTimeSlot(null);
-                    }}
-                    className={`cal-date-btn ${isSelected ? 'selected' : ''}`}
-                  >
-                    {dayNum}
-                  </button>
-                );
-              })}
-            </div>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px', textAlign: 'center' }}>
-              * Mon–Fri: 10 AM – 8 PM | Sat: 10 AM – 6 PM | Sun: Closed
+        <section className="step-content">
+          <div className="section-header">
+            <button className="back-link" onClick={() => setStep(1)}>← Change Service</button>
+            <h2>Choose Date & Available Time</h2>
+            <p className="service-summary-badge">
+              Selected: <strong>{selectedService.name}</strong> ({selectedService.duration_minutes} mins)
             </p>
           </div>
 
-          {/* Available Time Slots Grid */}
-          {selectedDate && (
-            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
-              <h4 style={{ fontSize: '1rem', marginBottom: '12px' }}>
-                Available Time Slots for {selectedDate} ({selectedService.duration_minutes}-min intervals):
-              </h4>
+          <div className="booking-panel">
+            {/* Calendar Date Input */}
+            <div className="date-picker-box">
+              <label className="input-label">Select Date</label>
+              <input
+                type="date"
+                className="custom-date-input"
+                value={selectedDate}
+                min={new Date().toISOString().split('T')[0]}
+                onChange={(e) => setSelectedDate(e.target.value)}
+              />
+            </div>
+
+            {/* Time Slot Grid */}
+            <div className="slots-container">
+              <label className="input-label">
+                Available Slots for {selectedService.duration_minutes}-Min Session:
+              </label>
 
               {loadingSlots ? (
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Checking real-time slot availability...</p>
+                <div className="loading-spinner">Calculating open slots...</div>
               ) : availableSlots.length === 0 ? (
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No available time slots on this day.</p>
+                <p className="no-slots">No available slots for this date. Please pick another day.</p>
               ) : (
                 <div className="slots-grid">
-                  {availableSlots.map((slot) => (
+                  {availableSlots.map((slot, idx) => (
                     <button
-                      key={slot.timeValue}
+                      key={idx}
                       disabled={slot.isBooked}
-                      onClick={() => setSelectedTimeSlot(slot)}
-                      className={`slot-btn ${selectedTimeSlot?.timeValue === slot.timeValue ? 'selected' : ''}`}
+                      className={`slot-chip ${slot.isBooked ? 'booked' : ''} ${
+                        selectedSlot?.isoStart === slot.isoStart ? 'selected' : ''
+                      }`}
+                      onClick={() => setSelectedSlot(slot)}
                     >
-                      {slot.label} {slot.isBooked ? '(Reserved)' : ''}
+                      <span>{slot.timeDisplay}</span>
+                      {slot.isBooked && <span className="booked-subtext">Booked</span>}
                     </button>
                   ))}
                 </div>
               )}
             </div>
-          )}
+          </div>
 
-          {/* Proceed Button */}
-          {selectedDate && selectedTimeSlot && (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
-              <button onClick={() => setStep(3)} className="btn-gold">
-                Continue to Client Details →
-              </button>
-            </div>
-          )}
-        </div>
+          <div className="step-actions">
+            <button className="btn-secondary" onClick={() => setStep(1)}>Back</button>
+            <button
+              className="btn-primary"
+              disabled={!selectedSlot}
+              onClick={() => setStep(3)}
+            >
+              Continue to Details →
+            </button>
+          </div>
+        </section>
       )}
 
       {/* STEP 3: CLIENT DETAILS FORM */}
-      {step === 3 && !bookingResult && selectedService && selectedDate && selectedTimeSlot && (
-        <div className="salon-card-box">
-          <h2 style={{ fontSize: '1.4rem', marginBottom: '8px' }}>Client Details</h2>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
-            Reservation: <strong>{selectedService.name}</strong> on <strong>{selectedDate}</strong> at <strong>{selectedTimeSlot.label}</strong>
-          </p>
+      {step === 3 && selectedService && selectedSlot && (
+        <section className="step-content">
+          <div className="section-header">
+            <button className="back-link" onClick={() => setStep(2)}>← Change Date/Time</button>
+            <h2>Guest Information</h2>
+            <p>Please enter your contact information to receive your confirmation receipt.</p>
+          </div>
 
-          <form onSubmit={handleSubmitBooking}>
+          <div className="booking-summary-card">
+            <div><strong>Service:</strong> {selectedService.name}</div>
+            <div><strong>Duration:</strong> {selectedService.duration_minutes} Mins</div>
+            <div><strong>Date & Time:</strong> {new Date(selectedSlot.isoStart).toLocaleString()}</div>
+            <div><strong>Total Due at Salon:</strong> ${selectedService.starting_price}</div>
+          </div>
+
+          <form onSubmit={handleFormSubmit} className="client-form">
+            {errorMsg && <div className="error-banner">{errorMsg}</div>}
+
             <div className="form-group">
-              <label className="form-label">Full Name *</label>
+              <label>Full Name *</label>
               <input
                 type="text"
                 required
-                placeholder="Jane Doe"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="form-input"
+                placeholder="e.g., Jane Doe"
+                value={formData.full_name}
+                onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
               />
             </div>
 
-            <div className="form-grid">
+            <div className="form-row">
               <div className="form-group">
-                <label className="form-label">Email Address *</label>
+                <label>Email Address *</label>
                 <input
                   type="email"
                   required
                   placeholder="jane@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="form-input"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 />
               </div>
+
               <div className="form-group">
-                <label className="form-label">Phone Number *</label>
+                <label>Phone Number *</label>
                 <input
                   type="tel"
                   required
-                  placeholder="(212) 949-6693"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="form-input"
+                  placeholder="(212) 555-0199"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                 />
               </div>
             </div>
 
             <div className="form-group">
-              <label className="form-label">Special Notes / Requests (Optional)</label>
+              <label>Special Notes or Requests (Optional)</label>
               <textarea
                 rows="3"
-                placeholder="Hair condition preferences or special requests..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="form-input"
-              ></textarea>
+                placeholder="Let us know about hair sensitivities, preferences, or questions..."
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              />
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px' }}>
-              <button type="button" onClick={() => setStep(2)} className="btn-secondary">
-                ← Back
-              </button>
-              <button type="submit" disabled={submitting} className="btn-gold">
-                {submitting ? 'Confirming...' : 'Complete Reservation'}
+            <div className="step-actions">
+              <button type="button" className="btn-secondary" onClick={() => setStep(2)}>Back</button>
+              <button type="submit" className="btn-primary" disabled={submitting}>
+                {submitting ? 'Confirming Reservation...' : 'Complete Reservation'}
               </button>
             </div>
           </form>
-        </div>
+        </section>
       )}
 
-      {/* CONFIRMATION SCREEN */}
-      {bookingResult && (
-        <div className="salon-card-box" style={{ textAlign: 'center', padding: '36px' }}>
-          <div style={{ width: '60px', height: '60px', backgroundColor: '#FDF9EE', border: '2px solid var(--gold-accent)', color: 'var(--gold-accent)', borderRadius: '50%', display: 'flex', items: 'center', justifyContent: 'center', fontSize: '1.8rem', margin: '0 auto 16px auto', lineHeight: '60px' }}>
-            ✓
-          </div>
-          <h2 style={{ fontSize: '1.6rem', color: 'var(--gold-accent)', marginBottom: '8px' }}>Appointment Confirmed!</h2>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '24px' }}>
-            A confirmation email has been sent to <strong>{email}</strong>.
+      {/* STEP 4: CONFIRMATION RECEIPT */}
+      {step === 4 && bookingResult && (
+        <section className="step-content confirmation-view">
+          <div className="success-badge-icon">✓</div>
+          <h2 className="confirmation-title">Reservation Confirmed!</h2>
+          <p className="confirmation-subtext">
+            A confirmation receipt has been sent to <strong>{formData.email}</strong>.
           </p>
 
-          <div style={{ backgroundColor: '#FAF8F5', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '20px', textAlign: 'left', fontSize: '0.85rem', marginBottom: '24px', lineHeight: '1.8' }}>
-            <p><strong>Service:</strong> {selectedService?.name}</p>
-            <p><strong>Date & Time:</strong> {selectedDate} ({selectedTimeSlot?.label})</p>
-            <p><strong>Client:</strong> {fullName} ({phone})</p>
-            <p style={{ color: 'var(--gold-accent)' }}><strong>Cancellation Code:</strong> <span style={{ fontFamily: 'monospace' }}>{bookingResult.cancellation_code}</span></p>
+          <div className="cancellation-code-card">
+            <span className="code-label">Cancellation / Reference Code</span>
+            <span className="code-val">{bookingResult.cancellation_code}</span>
           </div>
 
-          <button onClick={handleReset} className="btn-secondary">
+          <div className="summary-list">
+            <div className="summary-item">
+              <span>Customer:</span>
+              <strong>{formData.full_name}</strong>
+            </div>
+            <div className="summary-item">
+              <span>Service:</span>
+              <strong>{selectedService.name}</strong>
+            </div>
+            <div className="summary-item">
+              <span>Date & Time:</span>
+              <strong>{new Date(selectedSlot.isoStart).toLocaleString()}</strong>
+            </div>
+            <div className="summary-item">
+              <span>Salon Location:</span>
+              <strong>310 East 44th St, Manhattan, NY 10017</strong>
+            </div>
+          </div>
+
+          <button
+            className="btn-primary"
+            onClick={() => {
+              setStep(1);
+              setSelectedService(null);
+              setSelectedSlot(null);
+              setBookingResult(null);
+            }}
+          >
             Book Another Appointment
           </button>
-        </div>
+        </section>
       )}
-
-      {/* Footer */}
-      <footer className="salon-footer">
-        <p>© {new Date().getFullYear()} Le Salon NYC. 310 East 44th St, Manhattan, NY 10017.</p>
-      </footer>
     </div>
   );
 }
