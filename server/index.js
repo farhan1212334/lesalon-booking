@@ -38,7 +38,7 @@ app.get('/api/services', async (req, res) => {
   }
 });
 
-// Fetch Booked Slots for a Specific Date (Real-time conflict checking)
+// Fetch Booked Slots for a Specific Date
 app.get('/api/booked-slots', async (req, res) => {
   const { date } = req.query;
   if (!date) return res.status(400).json({ error: 'Date parameter is required' });
@@ -54,7 +54,7 @@ app.get('/api/booked-slots', async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('Error fetching booked slots:', err);
-    res.json([]); // Return empty array on fallback so UI doesn't crash
+    res.json([]);
   }
 });
 
@@ -67,7 +67,17 @@ app.post('/api/appointments', async (req, res) => {
   }
 
   try {
-    // 1. Create or fetch existing customer
+    // 1. Fetch service details to get exact duration_minutes & name
+    const serviceDetails = await pool.query('SELECT name, duration_minutes FROM services WHERE id = $1', [service_id]);
+    const durationMinutes = parseInt(serviceDetails.rows[0]?.duration_minutes || 45, 10);
+    const serviceName = serviceDetails.rows[0]?.name || 'Salon Service';
+
+    // 2. Calculate end_time based on duration
+    const startDate = new Date(start_time);
+    const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+    const end_time = endDate.toISOString();
+
+    // 3. Create or fetch existing customer
     let customerResult = await pool.query('SELECT id FROM customers WHERE email = $1', [email]);
     let customerId;
 
@@ -81,33 +91,29 @@ app.post('/api/appointments', async (req, res) => {
       customerId = customerResult.rows[0].id;
     }
 
-    // 2. Generate random 6-character cancellation code
+    // 4. Generate random 6-character cancellation code
     const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-    // 3. Insert appointment record (With schema fallback)
+    // 5. Insert appointment record (Including calculated end_time)
     let appointmentResult;
     try {
       appointmentResult = await pool.query(
-        `INSERT INTO appointments (customer_id, service_id, start_time, notes, cancellation_code, status)
-         VALUES ($1, $2, $3, $4, $5, 'confirmed')
+        `INSERT INTO appointments (customer_id, service_id, start_time, end_time, notes, cancellation_code, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'confirmed')
          RETURNING id`,
-        [customerId, service_id, start_time, notes || '', cancellation_code]
+        [customerId, service_id, start_time, end_time, notes || '', cancellation_code]
       );
     } catch (dbSchemaErr) {
-      console.warn('Full schema insert failed, performing basic insert:', dbSchemaErr.message);
+      console.warn('Full schema insert fallback:', dbSchemaErr.message);
       appointmentResult = await pool.query(
-        `INSERT INTO appointments (customer_id, service_id, start_time, notes)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO appointments (customer_id, service_id, start_time, end_time, notes)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id`,
-        [customerId, service_id, start_time, notes || '']
+        [customerId, service_id, start_time, end_time, notes || '']
       );
     }
 
-    // 4. Fetch service name
-    const serviceDetails = await pool.query('SELECT name FROM services WHERE id = $1', [service_id]);
-    const serviceName = serviceDetails.rows[0]?.name || 'Salon Service';
-
-    // 5. Send Email Notifications (Safe - fails quietly if SMTP credentials are missing)
+    // 6. Send Email Notifications (Safe execution)
     if (process.env.SMTP_EMAIL && process.env.SMTP_PASSWORD) {
       try {
         const emailOptionsClient = {
@@ -147,7 +153,7 @@ app.post('/api/appointments', async (req, res) => {
         await transporter.sendMail(emailOptionsClient);
         await transporter.sendMail(emailOptionsSalon);
       } catch (emailErr) {
-        console.error('Email dispatch non-fatal error:', emailErr.message);
+        console.error('Email error (non-fatal):', emailErr.message);
       }
     }
 
