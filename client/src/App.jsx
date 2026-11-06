@@ -35,8 +35,9 @@ export default function App() {
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // Client Form state & Validations
+  // Client Form state & Policy Checkbox
   const [formData, setFormData] = useState({ full_name: '', email: '', phone: '', notes: '' });
+  const [policyAgreed, setPolicyAgreed] = useState(false);
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [bookingResult, setBookingResult] = useState(null);
@@ -49,7 +50,7 @@ export default function App() {
   const [cancelResult, setCancelResult] = useState(null);
   const [cancelServerError, setCancelServerError] = useState('');
 
-  // 1. Fetch backend services with fallback
+  // Fetch backend services with fallback
   useEffect(() => {
     fetch(`${API_BASE_URL}/services`)
       .then((res) => res.json())
@@ -65,7 +66,7 @@ export default function App() {
       .catch(() => console.log('Using static service catalog'));
   }, []);
 
-  // 2. Fetch Booked Slots & Compute Duration Slots
+  // Fetch Booked Slots & Compute Duration Slots
   useEffect(() => {
     if (!selectedDate || !selectedService) return;
 
@@ -137,7 +138,7 @@ export default function App() {
     setStep(2);
   };
 
-  // Client Form Validations
+  // Client Form & Policy Checkbox Validations
   const validateForm = () => {
     const errors = {};
     if (!formData.full_name.trim()) {
@@ -156,6 +157,10 @@ export default function App() {
       errors.phone = 'Phone number is required.';
     } else if (phoneDigits.length < 7) {
       errors.phone = 'Please enter a valid phone number.';
+    }
+
+    if (!policyAgreed) {
+      errors.policyAgreed = 'You must acknowledge and accept the salon policies to complete your booking.';
     }
 
     setFormErrors(errors);
@@ -199,7 +204,7 @@ export default function App() {
     }
   };
 
-  // Handle Cancellation Form Submission
+  // Handle Cancellation Submission
   const handleCancelSubmit = async (e) => {
     e.preventDefault();
     const errors = {};
@@ -249,9 +254,9 @@ export default function App() {
       <header className="salon-header">
         <span className="brand-tagline">Manhattan Flagship</span>
         <h1 className="brand-title">LE SALON NYC</h1>
+        <p className="brand-organic">EXCLUSIVELY ORGANIC</p>
         <p className="brand-address">310 East 44th St, New York, NY • (212) 949-6693</p>
 
-        {/* View Mode Navigation Toggle */}
         <div className="header-nav-toggle">
           <button
             className={`nav-tab-btn ${viewMode === 'booking' ? 'active' : ''}`}
@@ -338,7 +343,7 @@ export default function App() {
               <div className="cancel-badge-icon">✕</div>
               <h2 className="confirmation-title">Reservation Cancelled</h2>
               <p className="confirmation-subtext">
-                Your reservation <strong>({cancelData.cancellation_code})</strong> has been successfully cancelled and removed from our schedule.
+                Your reservation <strong>({cancelData.cancellation_code})</strong> has been successfully cancelled.
               </p>
 
               {cancelResult.isLateCancellation && (
@@ -492,7 +497,7 @@ export default function App() {
             </section>
           )}
 
-          {/* STEP 3: CLIENT DETAILS FORM WITH SALON POLICIES */}
+          {/* STEP 3: CLIENT DETAILS FORM WITH POLICY CHECKBOX */}
           {step === 3 && selectedService && selectedSlot && (
             <section className="step-content">
               <div className="section-header">
@@ -523,7 +528,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Clean Salon Policies & Terms Card */}
+              {/* Structured Salon Policies Card */}
               <div className="policies-card">
                 <h3 className="policies-title">Salon Policies & Terms</h3>
                 <ul className="policies-list">
@@ -546,6 +551,25 @@ export default function App() {
                     </div>
                   </li>
                 </ul>
+
+                {/* Mandatory Policy Agreement Checkbox */}
+                <div className="policy-checkbox-container">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      className="styled-checkbox"
+                      checked={policyAgreed}
+                      onChange={(e) => {
+                        setPolicyAgreed(e.target.checked);
+                        if (formErrors.policyAgreed) setFormErrors({ ...formErrors, policyAgreed: null });
+                      }}
+                    />
+                    <span>
+                      I have read, understood, and agree to the <strong>Le Salon NYC Policies</strong>, including the 24-hour cancellation terms.
+                    </span>
+                  </label>
+                  {formErrors.policyAgreed && <span className="field-error block-error">{formErrors.policyAgreed}</span>}
+                </div>
               </div>
 
               <form onSubmit={handleFormSubmit} className="client-form-card" noValidate>
@@ -619,7 +643,7 @@ export default function App() {
             </section>
           )}
 
-          {/* STEP 4: SUCCESS CONFIRMATION RECEIPT WITH POLICY REMINDERS */}
+          {/* STEP 4: SUCCESS CONFIRMATION RECEIPT */}
           {step === 4 && bookingResult && (
             <section className="step-content confirmation-view">
               <div className="success-badge-icon">✓</div>
@@ -668,6 +692,7 @@ export default function App() {
                   setSelectedService(null);
                   setSelectedSlot(null);
                   setFormData({ full_name: '', email: '', phone: '', notes: '' });
+                  setPolicyAgreed(false);
                   setBookingResult(null);
                 }}
               >

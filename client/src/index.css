@@ -67,6 +67,19 @@ body {
   color: var(--charcoal-dark);
   margin: 4px 0;
 }
+/* ==========================================================================
+   ORGANIC SUB-TAGLINE STYLING
+   ========================================================================== */
+
+.brand-organic {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 2.5px;
+  color: #b88e28;
+  text-transform: uppercase;
+  margin-top: 4px;
+  margin-bottom: 6px;
+}
 
 .brand-address {
   font-size: 0.85rem;
