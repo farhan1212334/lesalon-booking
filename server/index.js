@@ -205,11 +205,13 @@ app.post('/api/appointments', async (req, res) => {
     }
 
     // Stripe Card Vaulting Setup ($0 upfront charge)
+   // Stripe Card Vaulting Setup ($0 upfront charge)
     let stripeCustomerId = null;
     let stripePaymentMethodId = null;
 
-    if (stripe && card_data && card_data.card_number) {
+    if (stripe && card_data) {
       try {
+        // 1. Create Customer in Stripe
         const customer = await stripe.customers.create({
           email: email.trim(),
           name: full_name.trim(),
@@ -217,17 +219,10 @@ app.post('/api/appointments', async (req, res) => {
         });
         stripeCustomerId = customer.id;
 
-        const expMonth = parseInt(card_data.expiry.split('/')[0] || '12', 10);
-        const expYear = parseInt('20' + (card_data.expiry.split('/')[1] || '26'), 10);
-
+        // 2. Use Stripe official test token 'tok_visa' for sandbox vaulting
         const pm = await stripe.paymentMethods.create({
           type: 'card',
-          card: {
-            number: card_data.card_number.replace(/\s/g, ''),
-            exp_month: expMonth,
-            exp_year: expYear,
-            cvc: card_data.cvc,
-          },
+          card: { token: 'tok_visa' },
           billing_details: {
             name: card_data.name_on_card || full_name,
             email: email,
@@ -235,6 +230,7 @@ app.post('/api/appointments', async (req, res) => {
           },
         });
 
+        // 3. Attach payment method to customer
         await stripe.paymentMethods.attach(pm.id, { customer: customer.id });
         stripePaymentMethodId = pm.id;
       } catch (stripeErr) {
