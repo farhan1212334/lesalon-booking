@@ -387,7 +387,129 @@ body {
   background: #ccc;
   cursor: not-allowed;
 }
+/* Card & Policy Cards Section */
+.checkout-card-section {
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 24px;
+  margin-top: 20px;
+}
 
+.section-subtitle {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.card-sub-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: -10px;
+  margin-bottom: 16px;
+}
+
+.card-secure-badges {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.card-badge {
+  background: #eee;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: bold;
+}
+
+.card-badge.visa { background: #1a1f71; color: #fff; }
+.card-badge.mc { background: #eb001b; color: #fff; }
+.card-badge.disc { background: #ff6000; color: #fff; }
+
+/* Fresha Style Policy Details */
+.more-details-section {
+  margin-top: 32px;
+}
+
+.section-heading-lg {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.policy-detail-card {
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 16px;
+}
+
+.policy-detail-card h4 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.policy-detail-card p {
+  font-size: 0.9rem;
+  color: #444;
+  line-height: 1.5;
+}
+
+.sub-hint {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.checkbox-agree-box {
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+/* Multi-Service Bill Breakdown in Sidebar */
+.selected-services-bill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bill-item-row {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px dashed var(--card-border);
+  padding-bottom: 10px;
+}
+
+.bill-item-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.bill-item-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.bill-item-price {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.tax-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
 /* Modals & Forms */
 .modal-overlay {
   position: fixed;

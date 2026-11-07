@@ -3,23 +3,22 @@ import './index.css';
 
 const API_BASE_URL = 'https://lesalon-api.onrender.com/api';
 
-// Complete Le Salon NYC Master Service Catalog
 const DEFAULT_SERVICES = [
-  { id: 1, name: 'Shampoo Haircut & Blow Dry', price_display: '$75 and up', starting_price: 75, duration_minutes: 75, category: 'Haircut & Styling' },
-  { id: 2, name: 'Shampoo & Blow Dry', price_display: '$40 and up', starting_price: 40, duration_minutes: 45, category: 'Haircut & Styling', variants: [{ name: 'Standard Hair', price: 40, duration: 45 }, { name: 'Long Hair', price: 60, duration: 60 }, { name: 'Extra Long / Thick', price: 80, duration: 75 }] },
-  { id: 3, name: 'Single Process Color', price_display: '$100 and up', starting_price: 100, duration_minutes: 75, category: 'Color Services' },
-  { id: 4, name: 'Single Process Color & Blow Dry', price_display: '$130 and up', starting_price: 130, duration_minutes: 120, category: 'Color Services' },
-  { id: 5, name: 'Single Process & Full Head of Highlights', price_display: '$330 and up', starting_price: 330, duration_minutes: 180, category: 'Color Services' },
-  { id: 6, name: 'Single Process with Full Head of Highlights & Blow Dry', price_display: '$380 and up', starting_price: 380, duration_minutes: 210, category: 'Color Services' },
-  { id: 7, name: 'Full Head Highlights', price_display: '$250', starting_price: 250, duration_minutes: 120, category: 'Highlights' },
-  { id: 8, name: 'Full Head Highlights & Blow Dry', price_display: '$290', starting_price: 290, duration_minutes: 150, category: 'Highlights' },
-  { id: 9, name: 'Half Head Highlights', price_display: '$180', starting_price: 180, duration_minutes: 90, category: 'Highlights' },
-  { id: 10, name: 'Half Head Highlights & Blow Dry', price_display: '$220', starting_price: 220, duration_minutes: 120, category: 'Highlights' },
-  { id: 11, name: 'Hair Treatment', price_display: '$35', starting_price: 35, duration_minutes: 30, category: 'Treatments' },
-  { id: 12, name: 'Organic Perm', price_display: '$150 and up', starting_price: 150, duration_minutes: 120, category: 'Treatments' },
-  { id: 13, name: 'Barber Haircut', price_display: '$40', starting_price: 40, duration_minutes: 30, category: 'Haircut & Styling' },
-  { id: 14, name: 'Makeup', price_display: 'Upon consultation', starting_price: 0, duration_minutes: 60, category: 'Specialty' },
-  { id: 15, name: 'Keratin Protein Treatment', price_display: 'Upon consultation', starting_price: 0, duration_minutes: 150, category: 'Treatments' },
+  { id: 1, name: 'Shampoo Haircut & Blow Dry', starting_price: 75, price_display: '$75', duration_minutes: 75, category: 'Haircut & Styling' },
+  { id: 2, name: 'Shampoo & Blow Dry', starting_price: 40, price_display: '$40', duration_minutes: 45, category: 'Haircut & Styling' },
+  { id: 3, name: 'Single Process Color', starting_price: 100, price_display: '$100', duration_minutes: 75, category: 'Color Services' },
+  { id: 4, name: 'Single Process Color & Blow Dry', starting_price: 130, price_display: '$130', duration_minutes: 120, category: 'Color Services' },
+  { id: 5, name: 'Single Process & Full Head of Highlights', starting_price: 330, price_display: '$330', duration_minutes: 180, category: 'Color Services' },
+  { id: 6, name: 'Single Process with Full Head of Highlights & Blow Dry', starting_price: 380, price_display: '$380', duration_minutes: 210, category: 'Color Services' },
+  { id: 7, name: 'Full Head Highlights', starting_price: 250, price_display: '$250', duration_minutes: 120, category: 'Highlights' },
+  { id: 8, name: 'Full Head Highlights & Blow Dry', starting_price: 290, price_display: '$290', duration_minutes: 150, category: 'Highlights' },
+  { id: 9, name: 'Half Head Highlights', starting_price: 180, price_display: '$180', duration_minutes: 90, category: 'Highlights' },
+  { id: 10, name: 'Half Head Highlights & Blow Dry', starting_price: 220, price_display: '$220', duration_minutes: 120, category: 'Highlights' },
+  { id: 11, name: 'Hair Treatment', starting_price: 35, price_display: '$35', duration_minutes: 30, category: 'Treatments' },
+  { id: 12, name: 'Organic Perm', starting_price: 150, price_display: '$150', duration_minutes: 120, category: 'Treatments' },
+  { id: 13, name: 'Barber Haircut', starting_price: 40, price_display: '$40', duration_minutes: 30, category: 'Haircut & Styling' },
+  { id: 14, name: 'Makeup', starting_price: 60, price_display: '$60', duration_minutes: 60, category: 'Specialty' },
+  { id: 15, name: 'Keratin Protein Treatment', starting_price: 150, price_display: '$150', duration_minutes: 150, category: 'Treatments' },
 ];
 
 const STAFF_MEMBERS = [
@@ -33,12 +32,10 @@ export default function App() {
   const [step, setStep] = useState(1); // 1: Services | 2: Professional | 3: Time | 4: Confirm
   const [services, setServices] = useState(DEFAULT_SERVICES);
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedService, setSelectedService] = useState(null);
-  const [selectedVariant, setSelectedVariant] = useState(null);
+  
+  // Multi-Service Selection Array
+  const [selectedServices, setSelectedServices] = useState([]);
   const [selectedStaff, setSelectedStaff] = useState(STAFF_MEMBERS[0]);
-
-  // Variant Modal State
-  const [variantModalService, setVariantModalService] = useState(null);
 
   // Date & Slot State
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -46,22 +43,42 @@ export default function App() {
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // Client Details & Policies State
+  // Client Details & Card State
   const [formData, setFormData] = useState({ full_name: '', email: '', phone: '', notes: '' });
+  const [cardData, setCardData] = useState({ name_on_card: '', card_number: '', expiry: '', cvc: '' });
   const [policyAgreed, setPolicyAgreed] = useState(false);
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [bookingResult, setBookingResult] = useState(null);
   const [serverError, setServerError] = useState('');
 
-  // Self-Service Cancellation State
+  // Cancellation State
   const [cancelData, setCancelData] = useState({ cancellation_code: '', email: '' });
   const [cancelErrors, setCancelErrors] = useState({});
   const [cancelling, setCancelling] = useState(false);
   const [cancelResult, setCancelResult] = useState(null);
   const [cancelServerError, setCancelServerError] = useState('');
 
-  // Fetch Services from API
+  // Calculated Totals
+  const totalPrice = selectedServices.reduce((sum, s) => sum + (s.starting_price || 0), 0);
+  const totalDuration = selectedServices.reduce((sum, s) => sum + (s.duration_minutes || 0), 0);
+  const lateFee = (totalPrice * 0.5).toFixed(2);
+  const noShowFee = totalPrice.toFixed(2);
+
+  // Toggle Multi-Service Selection
+  const handleToggleService = (service) => {
+    setSelectedServices((prev) => {
+      const exists = prev.some((s) => s.id === service.id);
+      if (exists) {
+        return prev.filter((s) => s.id !== service.id);
+      } else {
+        return [...prev, service];
+      }
+    });
+    setSelectedSlot(null);
+  };
+
+  // Fetch API Catalog
   useEffect(() => {
     fetch(`${API_BASE_URL}/services`)
       .then((res) => res.json())
@@ -74,27 +91,24 @@ export default function App() {
           setServices(merged);
         }
       })
-      .catch(() => console.log('Using catalog fallback'));
+      .catch(() => console.log('Using static service catalog'));
   }, []);
 
-  // Fetch Booked Slots & Compute NY Time Slots
+  // Compute NY Time Slots for Combined Duration
   useEffect(() => {
-    if (!selectedDate || !selectedService) return;
+    if (!selectedDate || selectedServices.length === 0) return;
 
     setLoadingSlots(true);
-    const duration = selectedVariant ? selectedVariant.duration : selectedService.duration_minutes;
-
     fetch(`${API_BASE_URL}/booked-slots?date=${selectedDate}`)
       .then((res) => res.json())
       .then((data) => {
         const booked = Array.isArray(data) ? data : [];
-        calculateTimeSlots(selectedDate, duration, booked);
+        calculateTimeSlots(selectedDate, totalDuration || 45, booked);
       })
-      .catch(() => calculateTimeSlots(selectedDate, duration, []))
+      .catch(() => calculateTimeSlots(selectedDate, totalDuration || 45, []))
       .finally(() => setLoadingSlots(false));
-  }, [selectedDate, selectedService, selectedVariant]);
+  }, [selectedDate, selectedServices, totalDuration]);
 
-  // Strict New York Time Slot Calculation
   const calculateTimeSlots = (dateStr, durationMins, bookedList) => {
     const slots = [];
     const openMinutes = 9 * 60;   // 9:00 AM
@@ -133,10 +147,8 @@ export default function App() {
         return `${h12}:${pad(m)} ${ampm}`;
       };
 
-      const timeDisplay = `${format12H(startH, startM)} – ${format12H(endH, endM)}`;
-
       slots.push({
-        timeDisplay,
+        timeDisplay: `${format12H(startH, startM)} – ${format12H(endH, endM)}`,
         isoStart,
         isBooked,
       });
@@ -145,28 +157,10 @@ export default function App() {
     setAvailableSlots(slots);
   };
 
-  const handleSelectServiceClick = (service) => {
-    if (service.variants && service.variants.length > 0) {
-      setVariantModalService(service);
-    } else {
-      setSelectedService(service);
-      setSelectedVariant(null);
-      setSelectedSlot(null);
-    }
-  };
-
-  const handleSelectVariant = (service, variant) => {
-    setSelectedService(service);
-    setSelectedVariant(variant);
-    setVariantModalService(null);
-    setSelectedSlot(null);
-  };
-
-  // Form Validation
   const validateForm = () => {
     const errors = {};
     if (!formData.full_name.trim()) errors.full_name = 'Full name is required.';
-
+    
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!formData.email.trim()) {
       errors.email = 'Email address is required.';
@@ -174,16 +168,11 @@ export default function App() {
       errors.email = 'Please enter a valid email address.';
     }
 
-    const phoneDigits = formData.phone.replace(/\D/g, '');
-    if (!formData.phone.trim()) {
-      errors.phone = 'Phone number is required.';
-    } else if (phoneDigits.length < 7) {
-      errors.phone = 'Please enter a valid phone number.';
-    }
-
-    if (!policyAgreed) {
-      errors.policyAgreed = 'You must agree to the salon cancellation policies.';
-    }
+    if (!formData.phone.trim()) errors.phone = 'Phone number is required.';
+    if (!cardData.card_number.trim()) errors.card_number = 'Card number is required for card-on-file reservation.';
+    if (!cardData.expiry.trim()) errors.expiry = 'Expiry date required.';
+    if (!cardData.cvc.trim()) errors.cvc = 'CVC security code required.';
+    if (!policyAgreed) errors.policyAgreed = 'You must accept the cancellation terms to complete reservation.';
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -196,9 +185,12 @@ export default function App() {
     setSubmitting(true);
     setServerError('');
 
+    const serviceNames = selectedServices.map((s) => s.name).join(', ');
+
     try {
       const payload = {
-        service_id: selectedService.id,
+        service_id: selectedServices[0]?.id || 1,
+        service_name: serviceNames,
         start_time: selectedSlot.isoStart,
         full_name: formData.full_name.trim(),
         email: formData.email.trim(),
@@ -215,7 +207,7 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setBookingResult(data);
-        setStep(5); // Final Receipt Step
+        setStep(5);
       } else {
         setServerError(data.message || 'Booking failed. Please try another slot.');
       }
@@ -226,7 +218,6 @@ export default function App() {
     }
   };
 
-  // Cancellation Submit
   const handleCancelSubmit = async (e) => {
     e.preventDefault();
     const errors = {};
@@ -261,29 +252,6 @@ export default function App() {
     }
   };
 
-  // Next Step Validation
-  const canContinue = () => {
-    if (step === 1) return !!selectedService;
-    if (step === 2) return !!selectedStaff;
-    if (step === 3) return !!selectedSlot;
-    if (step === 4) return policyAgreed && formData.full_name && formData.email && formData.phone;
-    return false;
-  };
-
-  const handleSidebarContinue = () => {
-    if (step < 4) {
-      setStep(step + 1);
-    } else if (step === 4) {
-      handleFormSubmit();
-    }
-  };
-
-  const categories = ['All', ...new Set(services.map((s) => s.category).filter(Boolean))];
-  const filteredServices = selectedCategory === 'All'
-    ? services
-    : services.filter((s) => s.category === selectedCategory);
-
-  // Date Strip Generator (7 Days)
   const generateDateStrip = () => {
     const dates = [];
     const base = new Date();
@@ -299,12 +267,30 @@ export default function App() {
     return dates;
   };
 
-  const activePriceDisplay = selectedVariant ? `$${selectedVariant.price}` : selectedService?.price_display || '$0';
-  const activeDurationDisplay = selectedVariant ? selectedVariant.duration : selectedService?.duration_minutes || 0;
+  const categories = ['All', ...new Set(services.map((s) => s.category).filter(Boolean))];
+  const filteredServices = selectedCategory === 'All'
+    ? services
+    : services.filter((s) => s.category === selectedCategory);
+
+  const canContinue = () => {
+    if (step === 1) return selectedServices.length > 0;
+    if (step === 2) return !!selectedStaff;
+    if (step === 3) return !!selectedSlot;
+    if (step === 4) return policyAgreed && formData.full_name && formData.email && formData.phone && cardData.card_number;
+    return false;
+  };
+
+  const handleSidebarContinue = () => {
+    if (step < 4) {
+      setStep(step + 1);
+    } else if (step === 4) {
+      handleFormSubmit();
+    }
+  };
 
   return (
     <div className="fresha-app-shell">
-      {/* Top Header */}
+      {/* Header */}
       <header className="fresha-header">
         <div className="header-brand">
           <h1 className="header-title">LE SALON NYC</h1>
@@ -333,11 +319,7 @@ export default function App() {
           {!cancelResult ? (
             <div className="cancel-card-box">
               <h2>Cancel an Appointment</h2>
-              <p className="subtitle">Enter your 6-character reference code and booking email.</p>
-
-              <div className="policy-alert-banner">
-                <strong>Cancellation Policy:</strong> Free cancellations up to 24 hours prior. Cancellations within 24 hours incur a 50% fee.
-              </div>
+              <p className="subtitle">Enter your reference code and email address.</p>
 
               <form onSubmit={handleCancelSubmit} noValidate>
                 {cancelServerError && <div className="error-banner">{cancelServerError}</div>}
@@ -379,7 +361,7 @@ export default function App() {
 
               {cancelResult.isLateCancellation && (
                 <div className="warning-banner-box">
-                  <strong>Late Cancellation Notice:</strong> Cancelled within 24 hours. A 50% service balance (${cancelResult.feeAmount || '37.50'}) has been logged to your customer profile.
+                  <strong>Notice on Late Cancellation:</strong> Submitted within 24 hours. Per salon policy, a 50% charge (${cancelResult.feeAmount || '37.50'}) has been processed.
                 </div>
               )}
 
@@ -390,12 +372,12 @@ export default function App() {
           )}
         </main>
       ) : step === 5 && bookingResult ? (
-        /* RECEIPT / SUCCESS VIEW */
+        /* SUCCESS RECEIPT VIEW */
         <main className="receipt-container">
           <div className="receipt-card">
             <div className="success-icon">✓</div>
             <h2>Reservation Confirmed!</h2>
-            <p className="receipt-sub">Confirmation dispatched to <strong>{formData.email}</strong></p>
+            <p className="receipt-sub">Confirmation sent to <strong>{formData.email}</strong></p>
 
             <div className="ref-code-box">
               <span>CANCELLATION REFERENCE CODE</span>
@@ -404,18 +386,17 @@ export default function App() {
 
             <div className="receipt-details-list">
               <div className="row"><span>Customer:</span> <strong>{formData.full_name}</strong></div>
-              <div className="row"><span>Service:</span> <strong>{selectedService.name} {selectedVariant ? `(${selectedVariant.name})` : ''}</strong></div>
+              <div className="row"><span>Services:</span> <strong>{selectedServices.map(s => s.name).join(', ')}</strong></div>
               <div className="row"><span>Professional:</span> <strong>{selectedStaff.name}</strong></div>
               <div className="row"><span>Date & Time:</span> <strong>{selectedSlot?.timeDisplay} (New York Time)</strong></div>
-              <div className="row"><span>Location:</span> <strong>310 East 44th St, Manhattan, NY 10017</strong></div>
+              <div className="row"><span>Total Bill:</span> <strong>${totalPrice.toFixed(2)} (Paid in Salon)</strong></div>
             </div>
 
             <button
               className="btn-primary-lg"
               onClick={() => {
                 setStep(1);
-                setSelectedService(null);
-                setSelectedVariant(null);
+                setSelectedServices([]);
                 setSelectedSlot(null);
                 setBookingResult(null);
               }}
@@ -425,35 +406,36 @@ export default function App() {
           </div>
         </main>
       ) : (
-        /* MAIN SPLIT-SCREEN BOOKING LAYOUT */
+        /* MAIN SPLIT-SCREEN BOOKING WORKFLOW */
         <main className="fresha-split-layout">
-          {/* LEFT COLUMN: MULTI-STEP FLOW */}
+          {/* LEFT COLUMN: MULTI-STEP CONTENT */}
           <div className="flow-main-column">
-            {/* Top Stepper Breadcrumbs */}
+            {/* Stepper Breadcrumbs */}
             <nav className="stepper-breadcrumbs">
               <span className={`step-item ${step === 1 ? 'active' : step > 1 ? 'completed' : ''}`} onClick={() => setStep(1)}>
-                1. Services
+                1. Services ({selectedServices.length})
               </span>
               <span className="chevron">›</span>
-              <span className={`step-item ${step === 2 ? 'active' : step > 2 ? 'completed' : ''}`} onClick={() => selectedService && setStep(2)}>
+              <span className={`step-item ${step === 2 ? 'active' : step > 2 ? 'completed' : ''}`} onClick={() => selectedServices.length > 0 && setStep(2)}>
                 2. Professional
               </span>
               <span className="chevron">›</span>
-              <span className={`step-item ${step === 3 ? 'active' : step > 3 ? 'completed' : ''}`} onClick={() => selectedService && selectedStaff && setStep(3)}>
+              <span className={`step-item ${step === 3 ? 'active' : step > 3 ? 'completed' : ''}`} onClick={() => selectedServices.length > 0 && selectedStaff && setStep(3)}>
                 3. Time
               </span>
               <span className="chevron">›</span>
               <span className={`step-item ${step === 4 ? 'active' : ''}`}>
-                4. Confirm
+                4. Confirm & Card
               </span>
             </nav>
 
-            {/* STEP 1: SELECT SERVICES */}
+            {/* STEP 1: MULTI-SERVICE SELECTION */}
             {step === 1 && (
               <section className="step-panel">
                 <h2 className="panel-title">Select Services</h2>
+                <p className="panel-subtitle">Select one or multiple services to add them to your reservation bill.</p>
 
-                {/* Category Pills */}
+                {/* Category Filter */}
                 <div className="category-pill-bar">
                   {categories.map((cat) => (
                     <button
@@ -466,15 +448,15 @@ export default function App() {
                   ))}
                 </div>
 
-                {/* Services List */}
+                {/* Interactive Multi-Select Services Grid */}
                 <div className="services-list-container">
                   {filteredServices.map((service) => {
-                    const isSelected = selectedService?.id === service.id;
+                    const isSelected = selectedServices.some((s) => s.id === service.id);
                     return (
                       <div
                         key={service.id}
                         className={`service-list-card ${isSelected ? 'selected' : ''}`}
-                        onClick={() => handleSelectServiceClick(service)}
+                        onClick={() => handleToggleService(service)}
                       >
                         <div className="service-info">
                           <h3 className="service-title-text">{service.name}</h3>
@@ -484,7 +466,7 @@ export default function App() {
                         <div className="service-price-action">
                           <span className="price-text">{service.price_display}</span>
                           <button className={`add-circle-btn ${isSelected ? 'active' : ''}`}>
-                            {isSelected ? '✓' : '+'}
+                            {isSelected ? '✓ Added' : '+ Add'}
                           </button>
                         </div>
                       </div>
@@ -499,7 +481,6 @@ export default function App() {
               <section className="step-panel">
                 <button className="back-link-btn" onClick={() => setStep(1)}>← Back to Services</button>
                 <h2 className="panel-title">Select Professional</h2>
-                <p className="panel-subtitle">Choose a specific stylist or select any available team member.</p>
 
                 <div className="staff-grid">
                   {STAFF_MEMBERS.map((staff) => {
@@ -525,13 +506,12 @@ export default function App() {
               </section>
             )}
 
-            {/* STEP 3: SELECT DATE AND TIME */}
+            {/* STEP 3: SELECT DATE & TIME */}
             {step === 3 && (
               <section className="step-panel">
                 <button className="back-link-btn" onClick={() => setStep(2)}>← Back to Professional</button>
                 <h2 className="panel-title">Select Date & Time</h2>
 
-                {/* Horizontal Date Strip Carousel */}
                 <div className="date-strip-wrapper">
                   <div className="date-strip">
                     {generateDateStrip().map((item) => {
@@ -551,14 +531,13 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Time Slots Grid */}
                 <div className="slots-section">
-                  <h4 className="slots-heading">Available Time Slots (New York Time)</h4>
+                  <h4 className="slots-heading">Available Slots for {totalDuration} Min Duration (NY Time)</h4>
 
                   {loadingSlots ? (
                     <div className="loading-spinner-box">Calculating open slots...</div>
                   ) : availableSlots.length === 0 ? (
-                    <p className="no-slots-msg">No slots remaining for this date. Please pick another date above.</p>
+                    <p className="no-slots-msg">No available slots for this date. Select another date above.</p>
                   ) : (
                     <div className="fresha-slots-grid">
                       {availableSlots.map((slot, idx) => (
@@ -578,23 +557,26 @@ export default function App() {
               </section>
             )}
 
-            {/* STEP 4: REVIEW & CONFIRM */}
+            {/* STEP 4: REVIEW, PAYMENT & POLICY CARDS (FRESHA STYLE) */}
             {step === 4 && (
               <section className="step-content">
-                <button className="back-link-btn" onClick={() => setStep(3)}>← Back to Date & Time</button>
+                <button className="back-link-btn" onClick={() => setStep(3)}>← Back to Time Slot</button>
                 <h2 className="panel-title">Review and Confirm</h2>
 
+                {/* Notice Banner */}
                 <div className="in-salon-notice-card">
-                  <span className="notice-icon">💳</span>
+                  <span className="notice-icon">🔒</span>
                   <div>
-                    <strong>Payment Method: In-Salon Collection</strong>
-                    <p>You won't be charged online now. Payment is collected in store after your appointment.</p>
+                    <strong>Payment Method</strong>
+                    <p>You won't be charged now, payment will be collected in store after your appointment.</p>
                   </div>
                 </div>
 
                 {serverError && <div className="error-banner">{serverError}</div>}
 
-                <form className="checkout-form-box" noValidate>
+                {/* Guest Contact Details */}
+                <div className="checkout-card-section">
+                  <h3 className="section-subtitle">Guest Details</h3>
                   <div className="form-group">
                     <label>Full Name *</label>
                     <input
@@ -602,10 +584,7 @@ export default function App() {
                       className={`styled-input ${formErrors.full_name ? 'invalid' : ''}`}
                       placeholder="e.g. Farhan Umar"
                       value={formData.full_name}
-                      onChange={(e) => {
-                        setFormData({ ...formData, full_name: e.target.value });
-                        if (formErrors.full_name) setFormErrors({ ...formErrors, full_name: null });
-                      }}
+                      onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                     />
                     {formErrors.full_name && <span className="input-error">{formErrors.full_name}</span>}
                   </div>
@@ -618,10 +597,7 @@ export default function App() {
                         className={`styled-input ${formErrors.email ? 'invalid' : ''}`}
                         placeholder="name@example.com"
                         value={formData.email}
-                        onChange={(e) => {
-                          setFormData({ ...formData, email: e.target.value });
-                          if (formErrors.email) setFormErrors({ ...formErrors, email: null });
-                        }}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                       />
                       {formErrors.email && <span className="input-error">{formErrors.email}</span>}
                     </div>
@@ -633,35 +609,110 @@ export default function App() {
                         className={`styled-input ${formErrors.phone ? 'invalid' : ''}`}
                         placeholder="(212) 555-0199"
                         value={formData.phone}
-                        onChange={(e) => {
-                          setFormData({ ...formData, phone: e.target.value });
-                          if (formErrors.phone) setFormErrors({ ...formErrors, phone: null });
-                        }}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                       />
                       {formErrors.phone && <span className="input-error">{formErrors.phone}</span>}
                     </div>
                   </div>
+                </div>
+
+                {/* Card-on-File Details Card */}
+                <div className="checkout-card-section">
+                  <h3 className="section-subtitle">Pay by debit or credit card</h3>
+                  <p className="card-sub-label">Add card details for reservation hold</p>
 
                   <div className="form-group">
-                    <label>Special Requests or Notes (Optional)</label>
+                    <label>Name on card *</label>
+                    <input
+                      type="text"
+                      className="styled-input"
+                      placeholder="Cardholder Name"
+                      value={cardData.name_on_card}
+                      onChange={(e) => setCardData({ ...cardData, name_on_card: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Card number *</label>
+                    <input
+                      type="text"
+                      className={`styled-input ${formErrors.card_number ? 'invalid' : ''}`}
+                      placeholder="•••• •••• •••• ••••"
+                      maxLength="19"
+                      value={cardData.card_number}
+                      onChange={(e) => setCardData({ ...cardData, card_number: e.target.value })}
+                    />
+                    {formErrors.card_number && <span className="input-error">{formErrors.card_number}</span>}
+                  </div>
+
+                  <div className="form-row-2col">
+                    <div className="form-group">
+                      <label>Expiry date *</label>
+                      <input
+                        type="text"
+                        className={`styled-input ${formErrors.expiry ? 'invalid' : ''}`}
+                        placeholder="MM/YY"
+                        maxLength="5"
+                        value={cardData.expiry}
+                        onChange={(e) => setCardData({ ...cardData, expiry: e.target.value })}
+                      />
+                      {formErrors.expiry && <span className="input-error">{formErrors.expiry}</span>}
+                    </div>
+
+                    <div className="form-group">
+                      <label>Security code *</label>
+                      <input
+                        type="password"
+                        className={`styled-input ${formErrors.cvc ? 'invalid' : ''}`}
+                        placeholder="123"
+                        maxLength="4"
+                        value={cardData.cvc}
+                        onChange={(e) => setCardData({ ...cardData, cvc: e.target.value })}
+                      />
+                      {formErrors.cvc && <span className="input-error">{formErrors.cvc}</span>}
+                    </div>
+                  </div>
+
+                  <div className="card-secure-badges">
+                    <span>Pay securely with</span>
+                    <span className="card-badge visa">VISA</span>
+                    <span className="card-badge mc">MC</span>
+                    <span className="card-badge disc">DISC</span>
+                  </div>
+                </div>
+
+                {/* Policy Cards Section (Matching Fresha UI) */}
+                <div className="more-details-section">
+                  <h3 className="section-heading-lg">More details</h3>
+
+                  <div className="policy-detail-card">
+                    <h4>Cancellation policy</h4>
+                    <p>
+                      Cancel for free up to 24 hours ahead, otherwise you will be charged a <strong>${lateFee}</strong> late cancellation fee (50%). If you do not show up to your appointment, you will be charged a <strong>${noShowFee}</strong> no-show fee (100%).
+                    </p>
+                  </div>
+
+                  <div className="policy-detail-card">
+                    <h4>Important information</h4>
+                    <p>
+                      Please cancel or reschedule your appointments within 24 hours to avoid any cancellation fees. Payment is collected in salon via Cash, Visa, MasterCard, or Discover <em>(No American Express)</em>.
+                    </p>
+                  </div>
+
+                  <div className="policy-detail-card">
+                    <h4>Comments or requests</h4>
+                    <p className="sub-hint">Anything you'd like us to know?</p>
                     <textarea
                       className="styled-textarea"
                       rows="3"
-                      placeholder="Mention hair length, preferences, or sensitivities..."
+                      placeholder="Add special instructions or hair notes..."
                       value={formData.notes}
                       onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                     />
                   </div>
 
-                  {/* Mandatory Policy Agreement Checkbox */}
-                  <div className="policy-checkbox-card">
-                    <h4 className="policy-heading">Salon Terms & Cancellation Policy</h4>
-                    <ul className="policy-bullets">
-                      <li>Payment due at salon (Cash, Visa, MasterCard, Discover. <em>No AmEx</em>).</li>
-                      <li>Monetary refunds are not offered; unsatisfactory work will be fixed/redone.</li>
-                      <li>Cancellations require 24 hours notice. Late cancellations incur a 50% fee.</li>
-                    </ul>
-
+                  {/* Policy Checkbox */}
+                  <div className="checkbox-agree-box">
                     <label className="checkbox-flex">
                       <input
                         type="checkbox"
@@ -673,17 +724,17 @@ export default function App() {
                         }}
                       />
                       <span>
-                        I acknowledge and accept the <strong>Le Salon NYC Policies</strong>.
+                        I agree to the <strong>Le Salon NYC Policies</strong> and cancellation fee structure.
                       </span>
                     </label>
                     {formErrors.policyAgreed && <span className="input-error block">{formErrors.policyAgreed}</span>}
                   </div>
-                </form>
+                </div>
               </section>
             )}
           </div>
 
-          {/* RIGHT COLUMN: STICKY SUMMARY SIDEBAR */}
+          {/* RIGHT COLUMN: STICKY DYNAMIC BILL SUMMARY */}
           <aside className="sticky-summary-column">
             <div className="summary-card">
               {/* Salon Header */}
@@ -691,21 +742,24 @@ export default function App() {
                 <div className="salon-thumbnail">💈</div>
                 <div>
                   <h3 className="salon-name">Le Salon NYC</h3>
-                  <p className="salon-rating">4.95 ★★★★★ <span className="rating-count">(950+)</span></p>
+                  <p className="salon-rating">4.94 ★★★★★ <span className="rating-count">(688)</span></p>
                   <p className="salon-address">310 East 44th St, Manhattan, NY</p>
                 </div>
               </div>
 
-              {/* Selected Item Breakdown */}
+              {/* Multi-Service Bill Breakdown */}
               <div className="summary-body">
-                {selectedService ? (
-                  <div className="selected-item-row">
-                    <div className="item-title-col">
-                      <h4>{selectedService.name}</h4>
-                      {selectedVariant && <span className="variant-tag">{selectedVariant.name}</span>}
-                      <p className="item-duration">{activeDurationDisplay} min with {selectedStaff.name}</p>
-                    </div>
-                    <div className="item-price">{activePriceDisplay}</div>
+                {selectedServices.length > 0 ? (
+                  <div className="selected-services-bill-list">
+                    {selectedServices.map((s) => (
+                      <div key={s.id} className="bill-item-row">
+                        <div>
+                          <h4 className="bill-item-title">{s.name}</h4>
+                          <span className="bill-item-meta">{s.duration_minutes} min with {selectedStaff.name}</span>
+                        </div>
+                        <div className="bill-item-price">${s.starting_price.toFixed(2)}</div>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <p className="empty-summary-text">No services selected yet.</p>
@@ -715,18 +769,22 @@ export default function App() {
                   <div className="selected-time-box">
                     <span className="clock-icon">🕒</span>
                     <div>
-                      <strong>{new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</strong>
-                      <p>{selectedSlot.timeDisplay} (NY Time)</p>
+                      <strong>{new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</strong>
+                      <p>{selectedSlot.timeDisplay} ({totalDuration} min duration)</p>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Footer / Total */}
+              {/* Total Calculation */}
               <div className="summary-footer">
+                <div className="tax-row">
+                  <span>Tax</span>
+                  <span>$0.00</span>
+                </div>
                 <div className="total-row">
                   <span>Total</span>
-                  <strong className="total-price">{activePriceDisplay}</strong>
+                  <strong className="total-price">${totalPrice.toFixed(2)}</strong>
                 </div>
 
                 <button
@@ -740,36 +798,6 @@ export default function App() {
             </div>
           </aside>
         </main>
-      )}
-
-      {/* VARIANT OPTIONS POPUP MODAL */}
-      {variantModalService && (
-        <div className="modal-overlay" onClick={() => setVariantModalService(null)}>
-          <div className="modal-content-box" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>{variantModalService.name}</h3>
-              <button className="close-modal-btn" onClick={() => setVariantModalService(null)}>✕</button>
-            </div>
-
-            <p className="modal-sub">Select hair length or service variation:</p>
-
-            <div className="variants-list">
-              {variantModalService.variants.map((v, i) => (
-                <div
-                  key={i}
-                  className="variant-option-card"
-                  onClick={() => handleSelectVariant(variantModalService, v)}
-                >
-                  <div>
-                    <strong>{v.name}</strong>
-                    <p className="text-muted">{v.duration} Mins</p>
-                  </div>
-                  <div className="variant-price">${v.price}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
