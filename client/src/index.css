@@ -65,18 +65,30 @@ html, body {
   text-transform: uppercase;
 }
 
+.nav-buttons {
+  display: flex;
+  gap: 6px;
+}
+
 .header-btn {
-  padding: 8px 14px;
+  padding: 8px 12px;
   border-radius: 6px;
   font-size: 0.75rem;
   font-weight: 600;
-  border: 1px solid var(--dark-heading);
-  background: var(--dark-heading);
-  color: #ffffff;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--body-text);
   cursor: pointer;
+  transition: all 0.2s;
 }
 
-/* Container */
+.header-btn.active {
+  background: var(--dark-heading);
+  color: #ffffff;
+  border-color: var(--dark-heading);
+}
+
+/* Main Container */
 .main-container {
   max-width: 768px;
   margin: 0 auto;
@@ -94,14 +106,14 @@ html, body {
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   margin-bottom: 20px;
-  overflow-x: auto;
 }
 
 .step-nav-item {
   font-size: 0.75rem;
   font-weight: 600;
   color: #999999;
-  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.2s;
 }
 
 .step-nav-item.active {
@@ -156,7 +168,7 @@ html, body {
   border-color: var(--primary-gold);
 }
 
-/* Calendar & Dropdown Controls */
+/* Form Controls */
 .form-group {
   margin-bottom: 16px;
   display: flex;
@@ -223,7 +235,7 @@ textarea {
   color: #777777;
 }
 
-/* Step 4 Details Cards */
+/* Details Cards */
 .info-card {
   background: #ffffff;
   border: 1px solid var(--border-color);
@@ -245,28 +257,37 @@ textarea {
   line-height: 1.4;
 }
 
-/* Order Sticky Footer */
-.order-summary-footer {
-  position: sticky;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: #ffffff;
-  border-top: 1px solid var(--border-color);
-  padding: 14px 16px;
+/* Clean Action Buttons Group */
+.btn-group {
+  display: flex;
+  gap: 10px;
   margin-top: 20px;
+  width: 100%;
+}
+
+.back-btn {
+  height: 48px;
+  padding: 0 20px;
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--dark-heading);
+  cursor: pointer;
+  flex: 1;
 }
 
 .confirm-action-btn {
-  width: 100%;
   height: 48px;
   background: var(--primary-gold);
   color: #ffffff;
   border: none;
   border-radius: 24px;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 700;
   cursor: pointer;
+  flex: 2;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -278,4 +299,26 @@ textarea {
 
 .confirm-action-btn:disabled {
   background: #cccccc;
+}
+
+.cancel-btn {
+  width: 100%;
+  height: 46px;
+  background: #d9534f;
+  color: #ffffff;
+  border: none;
+  border-radius: 23px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.alert-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  margin-bottom: 14px;
 }
