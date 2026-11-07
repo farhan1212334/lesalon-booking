@@ -12,100 +12,64 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY) 
   : null;
 
-// Middleware - Open CORS configuration
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
+// Middleware
+app.use(cors());
 app.use(express.json());
 
-// In-Memory Storage
+// In-Memory Database
 const appointments = [];
 
-// Helper Function: Safe, Non-Blocking Transactional Email via Brevo
+// Helper Function: Safe Email Delivery via Brevo
 async function sendBrevoEmail({ to, subject, htmlContent }) {
-  try {
-    const apiKey = process.env.BREVO_API_KEY;
-    const senderEmail = process.env.SENDER_EMAIL || 'info@lesalonnyc.com';
+  const apiKey = process.env.BREVO_API_KEY;
+  const senderEmail = process.env.SENDER_EMAIL || 'info@lesalonnyc.com';
 
-    if (!apiKey) {
-      console.log('⚠️ BREVO NOTICE: BREVO_API_KEY is not configured in environment variables.');
-      return false;
-    }
-
-    const payload = JSON.stringify({
-      sender: { name: 'Le Salon NYC', email: senderEmail },
-      to: [{ email: to }],
-      subject: subject,
-      htmlContent: htmlContent,
-    });
-
-    if (typeof fetch === 'function') {
-      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: {
-          'accept': 'application/json',
-          'api-key': apiKey,
-          'content-type': 'application/json',
-        },
-        body: payload,
-      });
-      const data = await response.json().catch(() => ({}));
-      if (response.ok) {
-        console.log(`✅ Brevo email delivered successfully to ${to}`);
-        return true;
-      } else {
-        console.error(`❌ Brevo API error [${response.status}]:`, data);
-        return false;
-      }
-    } else {
-      return new Promise((resolve) => {
-        const req = https.request({
-          hostname: 'api.brevo.com',
-          port: 443,
-          path: '/v3/smtp/email',
-          method: 'POST',
-          headers: {
-            'accept': 'application/json',
-            'api-key': apiKey,
-            'content-type': 'application/json',
-            'Content-Length': Buffer.byteLength(payload),
-          },
-          timeout: 5000,
-        }, (res) => {
-          let body = '';
-          res.on('data', chunk => body += chunk);
-          res.on('end', () => {
-            if (res.statusCode >= 200 && res.statusCode < 300) {
-              console.log(`✅ Brevo email delivered successfully to ${to}`);
-              resolve(true);
-            } else {
-              console.error(`❌ Brevo error [${res.statusCode}]:`, body);
-              resolve(false);
-            }
-          });
-        });
-
-        req.on('error', (err) => {
-          console.error('❌ Brevo network error:', err.message);
-          resolve(false);
-        });
-
-        req.on('timeout', () => {
-          req.destroy();
-          console.error('❌ Brevo request timed out');
-          resolve(false);
-        });
-
-        req.write(payload);
-        req.end();
-      });
-    }
-  } catch (err) {
-    console.error('❌ Unexpected Brevo error:', err.message);
+  if (!apiKey) {
+    console.log('⚠️ BREVO NOTICE: BREVO_API_KEY environment variable is not set in Render.');
     return false;
   }
+
+  const payload = JSON.stringify({
+    sender: { name: 'Le Salon NYC', email: senderEmail },
+    to: [{ email: to }],
+    subject: subject,
+    htmlContent: htmlContent,
+  });
+
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'api.brevo.com',
+      port: 443,
+      path: '/v3/smtp/email',
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'api-key': apiKey,
+        'content-type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+      },
+    }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          console.log(`✅ Brevo Email sent successfully to ${to}`);
+          resolve(true);
+        } else {
+          console.error(`❌ Brevo API Rejected [HTTP ${res.statusCode}]:`, body);
+          resolve(false);
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      console.error('❌ Brevo Network Request Error:', err.message);
+      resolve(false);
+    });
+
+    req.write(payload);
+    req.end();
+  });
 }
 
 // -------------------------------------------------------------------
@@ -113,21 +77,35 @@ async function sendBrevoEmail({ to, subject, htmlContent }) {
 // -------------------------------------------------------------------
 app.post('/api/appointments', async (req, res) => {
   try {
-    // Flexible input parsing (supports camelCase and snake_case)
-    const full_name = req.body.full_name || req.body.fullName || req.body.name;
-    const email = req.body.email || req.body.userEmail;
-    const phone = req.body.phone || req.body.phoneNumber || req.body.mobile || '';
-    const service = req.body.service || req.body.serviceName || req.body.service_name;
-    const rawPrice = req.body.price || req.body.amount || req.body.servicePrice || 75;
-    const price = typeof rawPrice === 'number' ? rawPrice : (parseFloat(String(rawPrice).replace(/[^0-9.]/g, '')) || 75);
-    const date = req.body.date || req.body.appointmentDate || req.body.bookingDate;
-    const time = req.body.time || req.body.appointmentTime || req.body.bookingTime;
-    const card_data = req.body.card_data || req.body.cardData || req.body.card || {};
+    console.log('📥 Incoming Payload:', req.body);
 
-    if (!full_name || !email || !service || !date || !time) {
-      console.error('❌ Missing required parameters in request body:', req.body);
-      return res.status(400).json({ error: 'Missing required reservation details.' });
+    const full_name = req.body.full_name || req.body.fullName || req.body.name || 'Guest User';
+    const email = req.body.email || req.body.userEmail || '';
+    const phone = req.body.phone || req.body.phoneNumber || '';
+    const service = req.body.service_name || req.body.service || req.body.serviceName || 'Hair Service';
+    const price = parseFloat(req.body.starting_price || req.body.price || req.body.amount) || 75;
+
+    // Smart Date & Time Extractor from ISO start_time string
+    let date = req.body.date || req.body.appointmentDate;
+    let time = req.body.time || req.body.appointmentTime;
+
+    if (req.body.start_time) {
+      const parts = String(req.body.start_time).split('T');
+      if (!date && parts[0]) date = parts[0];
+      if (!time && parts[1]) {
+        const rawTime = parts[1].substring(0, 5); // e.g., "11:00"
+        const [h, m] = rawTime.split(':');
+        const hourNum = parseInt(h, 10);
+        const ampm = hourNum >= 12 ? 'PM' : 'AM';
+        const hour12 = hourNum % 12 || 12;
+        time = `${hour12}:${m} ${ampm}`;
+      }
     }
+
+    if (!date) date = new Date().toISOString().split('T')[0];
+    if (!time) time = '10:00 AM';
+
+    const card_data = req.body.card_data || req.body.cardData || {};
 
     // Generate unique 6-character cancellation code
     const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -135,42 +113,31 @@ app.post('/api/appointments', async (req, res) => {
     let stripeCustomerId = null;
     let stripePaymentMethodId = null;
 
-    // Vault card with Stripe if Secret Key is present
+    // Stripe Vaulting
     if (stripe) {
       try {
         const customer = await stripe.customers.create({
-          email: String(email).trim(),
-          name: String(full_name).trim(),
-          phone: phone ? String(phone).trim() : undefined,
+          email: email.trim(),
+          name: full_name.trim(),
+          phone: phone ? phone.trim() : undefined,
         });
         stripeCustomerId = customer.id;
 
-        try {
-          const pm = await stripe.paymentMethods.create({
-            type: 'card',
-            card: { token: 'tok_visa' },
-            billing_details: {
-              name: card_data.name_on_card || card_data.name || full_name,
-              email: email,
-              phone: phone || undefined,
-            },
-          });
-          if (pm && pm.id) {
-            await stripe.paymentMethods.attach(pm.id, { customer: customer.id });
-            stripePaymentMethodId = pm.id;
-          }
-        } catch (pmErr) {
-          console.error('⚠️ PaymentMethod creation token fallback:', pmErr.message);
-          try {
-            const source = await stripe.customers.createSource(customer.id, { source: 'tok_visa' });
-            stripePaymentMethodId = source.id;
-          } catch (srcErr) {
-            console.error('⚠️ Customer source fallback failed:', srcErr.message);
-          }
-        }
-        console.log(`💳 Card vaulted. Customer ID: ${stripeCustomerId}, Payment Method ID: ${stripePaymentMethodId}`);
+        const pm = await stripe.paymentMethods.create({
+          type: 'card',
+          card: { token: 'tok_visa' },
+          billing_details: {
+            name: card_data.name_on_card || full_name,
+            email: email,
+            phone: phone || undefined,
+          },
+        });
+
+        await stripe.paymentMethods.attach(pm.id, { customer: customer.id });
+        stripePaymentMethodId = pm.id;
+        console.log(`💳 Card vaulted. Customer ID: ${customer.id}`);
       } catch (stripeErr) {
-        console.error('⚠️ Stripe Vaulting Exception:', stripeErr.message);
+        console.error('⚠️ Stripe Vaulting Notice:', stripeErr.message);
       }
     }
 
@@ -183,9 +150,12 @@ app.post('/api/appointments', async (req, res) => {
       email,
       phone,
       service,
+      service_name: service,
       price,
+      starting_price: price,
       date,
       time,
+      start_time: req.body.start_time || `${date}T${time}`,
       status: 'confirmed',
       stripeCustomerId,
       stripePaymentMethodId,
@@ -194,7 +164,7 @@ app.post('/api/appointments', async (req, res) => {
 
     appointments.push(newAppointment);
 
-    // Build Email HTML Template
+    // Confirmation Email Body
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
         <h2 style="color: #111;">Le Salon NYC — Booking Confirmation</h2>
@@ -211,24 +181,23 @@ app.post('/api/appointments', async (req, res) => {
       </div>
     `;
 
-    // Fire email asynchronously without delaying API response
-    sendBrevoEmail({
-      to: email,
-      subject: `Reservation Confirmed — Le Salon NYC (${cancellation_code})`,
-      htmlContent: emailHtml,
-    }).catch(err => console.error('Email background error:', err));
+    // Send email asynchronously in background
+    if (email) {
+      sendBrevoEmail({
+        to: email,
+        subject: `Reservation Confirmed — Le Salon NYC (${cancellation_code})`,
+        htmlContent: emailHtml,
+      }).catch(err => console.error('Email dispatch error:', err));
+    }
 
-    // Return HTTP 200 with comprehensive data object mapping
+    // Return complete payload object to support all frontend state models
     return res.status(200).json({
       success: true,
       status: 'confirmed',
       message: 'Reservation created successfully.',
       cancellation_code,
       cancellationCode: cancellation_code,
-      code: cancellation_code,
       appointment: newAppointment,
-      booking: newAppointment,
-      reservation: newAppointment,
       data: newAppointment,
       ...newAppointment
     });
@@ -266,15 +235,13 @@ app.post('/api/cancel', async (req, res) => {
       return res.status(400).json({ error: 'This appointment is already canceled.' });
     }
 
-    // Calculate time difference for 24-hour window
-    const appointmentDateTime = new Date(`${apt.date} ${apt.time}`);
+    const appointmentDateTime = new Date(apt.start_time || `${apt.date} ${apt.time}`);
     const now = new Date();
     const hoursDifference = (appointmentDateTime - now) / (1000 * 60 * 60);
 
     let feeCharged = 0;
     let chargeSuccess = false;
 
-    // Enforce 50% Late Cancellation Penalty if < 24 hours
     if (hoursDifference < 24 && apt.stripeCustomerId && apt.stripePaymentMethodId && stripe) {
       const penaltyAmountCents = Math.round((apt.price * 0.5) * 100);
 
@@ -306,7 +273,7 @@ app.post('/api/cancel', async (req, res) => {
       <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
         <h2 style="color: #d9534f;">Le Salon NYC — Cancellation Confirmation</h2>
         <p>Dear <strong>${apt.full_name}</strong>,</p>
-        <p>Your reservation for <strong>${apt.service}</strong> on <strong>${apt.date} at ${apt.time}</strong> has been canceled.</p>
+        <p>Your reservation for <strong>${apt.service}</strong> has been canceled.</p>
         ${
           feeCharged > 0
             ? `<p style="color: #c9302c;">Notice: Because this cancellation occurred within 24 hours of your appointment, a 50% late cancellation fee of <strong>$${feeCharged.toFixed(2)}</strong> was charged to your card on file.</p>`
@@ -321,7 +288,7 @@ app.post('/api/cancel', async (req, res) => {
       to: apt.email,
       subject: `Reservation Canceled — Le Salon NYC (${apt.cancellation_code})`,
       htmlContent: cancelHtml,
-    }).catch(err => console.error('Email cancellation background error:', err));
+    }).catch(err => console.error('Email cancellation error:', err));
 
     return res.status(200).json({
       success: true,
@@ -330,8 +297,6 @@ app.post('/api/cancel', async (req, res) => {
       feeCharged,
       chargeSuccess,
       appointment: apt,
-      data: apt,
-      ...apt
     });
 
   } catch (error) {
@@ -340,7 +305,7 @@ app.post('/api/cancel', async (req, res) => {
   }
 });
 
-// Health check endpoint
+// Health check
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
