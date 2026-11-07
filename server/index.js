@@ -1,14 +1,13 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const Stripe = require('stripe');
 const https = require('https');
 const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Force explicit CORS headers on ALL requests (prevents browser fetch blocks)
+// Enable CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -22,12 +21,7 @@ app.use((req, res, next) => {
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// Initialize Stripe API safely
-const stripe = process.env.STRIPE_SECRET_KEY 
-  ? new Stripe(process.env.STRIPE_SECRET_KEY) 
-  : null;
-
-// Database Connection & Table Auto-Creation
+// Database Connection & Schema Setup
 let pool = null;
 if (process.env.DATABASE_URL) {
   pool = new Pool({
@@ -52,14 +46,12 @@ if (process.env.DATABASE_URL) {
             date VARCHAR(50) NOT NULL,
             time VARCHAR(50) NOT NULL,
             status VARCHAR(50) DEFAULT 'confirmed',
-            stripe_customer_id VARCHAR(255),
-            stripe_payment_method_id VARCHAR(255),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
           );
         `);
-        console.log('✅ Appointments table verified/created in database.');
+        console.log('✅ Appointments table verified.');
       } catch (tableErr) {
-        console.error('⚠️ Table creation notice:', tableErr.message);
+        console.error('⚠️ Table verification notice:', tableErr.message);
       } finally {
         client.release();
       }
@@ -69,19 +61,19 @@ if (process.env.DATABASE_URL) {
 
 const inMemoryAppointments = [];
 
-// Health & Root Endpoints
-app.get('/', (req, res) => res.status(200).send('Le Salon NYC API Server Active'));
+// Health & Ping Endpoints
+app.get('/', (req, res) => res.status(200).send('Le Salon NYC API Active'));
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/api/health', (req, res) => res.status(200).send('OK'));
 
-// Brevo Email Dispatch
+// Brevo Email Handler
 async function sendBrevoEmail({ to, subject, htmlContent }) {
   const apiKey = process.env.BREVO_API_KEY;
   const senderEmail = process.env.SENDER_EMAIL || process.env.SMTP_EMAIL || 'umarfarhan442@gmail.com';
   const adminEmail = process.env.ADMIN_EMAIL || process.env.SALON_NOTIFICATION_EMAIL || senderEmail;
 
   if (!apiKey) {
-    console.error('❌ BREVO ERROR: BREVO_API_KEY environment variable is missing.');
+    console.error('❌ BREVO ERROR: BREVO_API_KEY environment variable missing.');
     return false;
   }
 
@@ -115,7 +107,7 @@ async function sendBrevoEmail({ to, subject, htmlContent }) {
       res.on('data', chunk => body += chunk);
       res.on('end', () => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
-          console.log(`✅ Brevo notification delivered to ${to} & Admin`);
+          console.log(`✅ Brevo notification sent to ${to}`);
           resolve(true);
         } else {
           console.error(`❌ Brevo API Error [HTTP ${res.statusCode}]:`, body);
@@ -134,39 +126,55 @@ async function sendBrevoEmail({ to, subject, htmlContent }) {
   });
 }
 
-// ROUTE 1: CREATE APPOINTMENT
+// ROUTE 1: GET BOOKED SLOTS FOR A SPECIFIC DATE
+app.get('/api/booked-slots', async (req, res) => {
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ error: 'Date query parameter is required.' });
+
+  try {
+    let bookedTimes = [];
+    if (pool) {
+      const dbRes = await pool.query(
+        `SELECT time FROM appointments WHERE date = $1 AND status = 'confirmed';`,
+        [date]
+      );
+      bookedTimes = dbRes.rows.map(r => r.time);
+    } else {
+      bookedTimes = inMemoryAppointments
+        .filter(a => a.date === date && a.status === 'confirmed')
+        .map(a => a.time);
+    }
+    return res.status(200).json({ bookedSlots: bookedTimes });
+  } catch (err) {
+    console.error('❌ Error fetching booked slots:', err.message);
+    return res.status(500).json({ bookedSlots: [] });
+  }
+});
+
+// ROUTE 2: CREATE APPOINTMENT
 app.post('/api/appointments', async (req, res) => {
   try {
-    console.log('📥 Booking Request Received:', req.body);
-
     const full_name = req.body.full_name || req.body.fullName || 'Guest';
     const email = req.body.email || '';
     const phone = req.body.phone || '';
     const service_name = req.body.service_name || 'Salon Treatment';
     const starting_price = parseFloat(req.body.starting_price || req.body.price) || 75;
     const duration_minutes = parseInt(req.body.duration_minutes, 10) || 60;
+    const date = req.body.date || new Date().toISOString().split('T')[0];
+    const time = req.body.time || '10:00 AM';
 
-    let date = req.body.date || new Date().toISOString().split('T')[0];
-    let time = req.body.time || '10:00 AM';
-
-    const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
-
-    let stripeCustomerId = null;
-    let stripePaymentMethodId = null;
-
-    if (stripe) {
-      try {
-        const customer = await stripe.customers.create({
-          email: email.trim(),
-          name: full_name.trim(),
-          phone: phone ? phone.trim() : undefined,
-        });
-        stripeCustomerId = customer.id;
-        console.log(`💳 Customer Created on Stripe: ${customer.id}`);
-      } catch (stripeErr) {
-        console.error('⚠️ Stripe customer creation note:', stripeErr.message);
+    // Check if slot is already booked
+    if (pool) {
+      const existing = await pool.query(
+        `SELECT id FROM appointments WHERE date = $1 AND time = $2 AND status = 'confirmed';`,
+        [date, time]
+      );
+      if (existing.rows.length > 0) {
+        return res.status(400).json({ error: 'This time slot was just booked by another guest. Please select another time.' });
       }
     }
+
+    const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
     const newAppointment = {
       cancellation_code,
@@ -180,42 +188,38 @@ app.post('/api/appointments', async (req, res) => {
       date,
       time,
       status: 'confirmed',
-      stripeCustomerId,
-      stripePaymentMethodId,
       createdAt: new Date(),
     };
 
     if (pool) {
-      try {
-        const queryText = `
-          INSERT INTO appointments 
-          (cancellation_code, full_name, email, phone, service_name, starting_price, duration_minutes, date, time, status, stripe_customer_id, stripe_payment_method_id)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-          RETURNING id;
-        `;
-        const values = [cancellation_code, full_name, email, phone, service_name, starting_price, duration_minutes, date, time, 'confirmed', stripeCustomerId, stripePaymentMethodId];
-        const dbRes = await pool.query(queryText, values);
-        newAppointment.id = dbRes.rows[0].id;
-      } catch (dbErr) {
-        console.error('❌ DB Insert Notice:', dbErr.message);
-        newAppointment.id = Date.now().toString();
-      }
+      const queryText = `
+        INSERT INTO appointments 
+        (cancellation_code, full_name, email, phone, service_name, starting_price, duration_minutes, date, time, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING id;
+      `;
+      const values = [cancellation_code, full_name, email, phone, service_name, starting_price, duration_minutes, date, time, 'confirmed'];
+      const dbRes = await pool.query(queryText, values);
+      newAppointment.id = dbRes.rows[0].id;
     } else {
       newAppointment.id = Date.now().toString();
       inMemoryAppointments.push(newAppointment);
     }
 
-    // Trigger email in background so user receives instant HTTP response
+    // Confirmation Email Body
     const emailHtml = `
-      <div style="font-family: Arial, sans-serif; padding: 20px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px;">
-        <h2 style="color: #1a1a1a;">Le Salon NYC — Confirmation</h2>
+      <div style="font-family: Arial, sans-serif; padding: 24px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e8e6e1; border-radius: 8px; background-color: #ffffff;">
+        <h2 style="color: #1a1a1a; margin-top: 0;">Le Salon NYC — Reservation Confirmed</h2>
         <p>Dear <strong>${full_name}</strong>,</p>
-        <p>Your appointment has been successfully confirmed.</p>
-        <div style="background-color: #fafafa; padding: 14px; border-radius: 6px; margin: 16px 0; border: 1px solid #e8e6e1;">
-          <p style="margin: 4px 0;"><strong>Service:</strong> ${service_name}</p>
-          <p style="margin: 4px 0;"><strong>Date & Time:</strong> ${date} at ${time}</p>
-          <p style="margin: 4px 0;"><strong>Cancellation Code:</strong> <span style="font-size: 18px; font-weight: bold; color: #c59b27;">${cancellation_code}</span></p>
+        <p>Your appointment has been successfully scheduled. Here are your reservation details:</p>
+        <div style="background-color: #faf9f6; padding: 16px; border-radius: 6px; margin: 16px 0; border: 1px solid #e8e6e1;">
+          <p style="margin: 6px 0;"><strong>Service:</strong> ${service_name}</p>
+          <p style="margin: 6px 0;"><strong>Date & Time:</strong> ${date} at ${time}</p>
+          <p style="margin: 6px 0;"><strong>Duration:</strong> ${duration_minutes} Minutes</p>
+          <p style="margin: 6px 0;"><strong>Starting Price:</strong> $${starting_price}</p>
+          <p style="margin: 10px 0 0 0;"><strong>Cancellation Code:</strong> <span style="font-size: 18px; font-weight: bold; color: #c59b27; font-family: monospace;">${cancellation_code}</span></p>
         </div>
+        <p style="font-size: 0.85rem; color: #666;">Keep your cancellation code safe. You can manage or cancel your appointment anytime up to 24 hours prior.</p>
       </div>
     `;
 
@@ -223,7 +227,7 @@ app.post('/api/appointments', async (req, res) => {
       to: email,
       subject: `Reservation Confirmed — Le Salon NYC (${cancellation_code})`,
       htmlContent: emailHtml,
-    }).catch(err => console.error('❌ Brevo background error:', err));
+    }).catch(err => console.error('❌ Brevo async error:', err));
 
     return res.status(200).json({
       success: true,
@@ -239,59 +243,68 @@ app.post('/api/appointments', async (req, res) => {
   }
 });
 
-// ROUTE 2: CANCEL APPOINTMENT
+// ROUTE 3: CANCEL APPOINTMENT & FREE THE TIME SLOT
 app.post('/api/cancel', async (req, res) => {
   try {
-    const cancellation_code = req.body.cancellation_code || req.body.cancellationCode;
-    const email = req.body.email;
+    const cancellation_code = (req.body.cancellation_code || req.body.cancellationCode || '').trim().toUpperCase();
+    const email = (req.body.email || '').trim().toLowerCase();
+
+    if (!cancellation_code || !email) {
+      return res.status(400).json({ error: 'Cancellation code and email are required.' });
+    }
 
     let apt = null;
 
     if (pool) {
-      const dbRes = await pool.query(`SELECT * FROM appointments WHERE cancellation_code = $1 AND LOWER(email) = LOWER($2);`, [cancellation_code, email]);
-      if (dbRes.rows.length > 0) {
-        apt = dbRes.rows[0];
-        apt.price = parseFloat(apt.starting_price);
-        apt.stripeCustomerId = apt.stripe_customer_id;
-        apt.stripePaymentMethodId = apt.stripe_payment_method_id;
+      const updateRes = await pool.query(
+        `UPDATE appointments 
+         SET status = 'canceled' 
+         WHERE cancellation_code = $1 AND LOWER(email) = $2 AND status = 'confirmed' 
+         RETURNING *;`,
+        [cancellation_code, email]
+      );
+      if (updateRes.rows.length > 0) {
+        apt = updateRes.rows[0];
       }
     } else {
-      const idx = inMemoryAppointments.findIndex(a => a.cancellation_code === cancellation_code && a.email.toLowerCase() === email.toLowerCase());
-      if (idx !== -1) apt = inMemoryAppointments[idx];
-    }
-
-    if (!apt) return res.status(404).json({ error: 'Matching reservation not found.' });
-
-    const appointmentDateTime = new Date(`${apt.date} ${apt.time}`);
-    const hoursDifference = (appointmentDateTime - new Date()) / (1000 * 60 * 60);
-
-    let feeCharged = 0;
-    if (hoursDifference < 24 && apt.stripeCustomerId && apt.stripePaymentMethodId && stripe) {
-      try {
-        const paymentIntent = await stripe.paymentIntents.create({
-          amount: Math.round((apt.price * 0.5) * 100),
-          currency: 'usd',
-          customer: apt.stripeCustomerId,
-          payment_method: apt.stripePaymentMethodId,
-          off_session: true,
-          confirm: true,
-          description: `Late Cancellation Fee (50%) - Ref: ${apt.cancellation_code}`,
-        });
-
-        if (paymentIntent.status === 'succeeded') feeCharged = apt.price * 0.5;
-      } catch (stripeErr) {
-        console.error('❌ Penalty Charge Notice:', stripeErr.message);
+      const idx = inMemoryAppointments.findIndex(
+        a => a.cancellation_code === cancellation_code && a.email.toLowerCase() === email && a.status === 'confirmed'
+      );
+      if (idx !== -1) {
+        inMemoryAppointments[idx].status = 'canceled';
+        apt = inMemoryAppointments[idx];
       }
     }
+
+    if (!apt) {
+      return res.status(444 || 404).json({ error: 'No active reservation found with that reference code and email.' });
+    }
+
+    // Cancellation Email Body
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; padding: 24px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e8e6e1; border-radius: 8px; background-color: #ffffff;">
+        <h2 style="color: #b91c1c; margin-top: 0;">Le Salon NYC — Reservation Canceled</h2>
+        <p>Dear <strong>${apt.full_name}</strong>,</p>
+        <p>Your reservation (Code: <strong>${cancellation_code}</strong>) for <strong>${apt.service_name}</strong> on <strong>${apt.date} at ${apt.time}</strong> has been successfully canceled.</p>
+        <p style="font-size: 0.85rem; color: #666;">This time slot has been released back into our scheduling system.</p>
+      </div>
+    `;
+
+    sendBrevoEmail({
+      to: email,
+      subject: `Reservation Canceled — Le Salon NYC (${cancellation_code})`,
+      htmlContent: emailHtml,
+    }).catch(err => console.error('❌ Brevo cancel email error:', err));
 
     return res.status(200).json({
       success: true,
-      message: 'Canceled successfully.',
-      feeCharged,
+      message: 'Reservation canceled successfully. Time slot has been freed.',
+      canceledAppointment: apt
     });
   } catch (error) {
+    console.error('❌ Server error during cancellation:', error);
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Le Salon NYC Server running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Le Salon NYC Backend running on port ${PORT}`));

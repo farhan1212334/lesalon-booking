@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://lesalon-booking.onrender.com';
 
@@ -42,7 +42,7 @@ function generateTimeSlots(durationMinutes) {
 
     slots.push({
       value: startTimeStr,
-      label: `${startTimeStr} – ${endTimeStr} (${durationMinutes} min duration)`
+      label: `${startTimeStr} – ${endTimeStr}`
     });
 
     currentMinutes += 30;
@@ -56,12 +56,12 @@ export default function App() {
   const [selectedService, setSelectedService] = useState(SERVICES[0]);
   const [selectedProfessional, setSelectedProfessional] = useState(PROFESSIONALS[0]);
   const [bookingDate, setBookingDate] = useState(new Date().toISOString().split('T')[0]);
-  
+  const [bookedSlots, setBookedSlots] = useState([]);
+
   const availableSlots = generateTimeSlots(selectedService.duration_minutes);
   const [selectedTimeSlot, setSelectedTimeSlot] = useState(availableSlots[0]?.value || '10:00 AM');
 
   const [guest, setGuest] = useState({ fullName: '', email: '', phone: '', comments: '' });
-  const [card, setCard] = useState({ nameOnCard: '', cardNumber: '', expiry: '', cvc: '' });
   const [agreedTerms, setAgreedTerms] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -73,10 +73,32 @@ export default function App() {
   const [cancelResult, setCancelResult] = useState(null);
   const [cancelError, setCancelError] = useState('');
 
+  // Auto-warmup ping on initial load
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/health`).catch(() => {});
+  }, []);
+
+  // Fetch real-time booked slots whenever date changes
+  useEffect(() => {
+    fetchBookedSlots(bookingDate);
+  }, [bookingDate]);
+
+  const fetchBookedSlots = async (dateStr) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/booked-slots?date=${dateStr}`);
+      if (res.ok) {
+        const data = await res.json();
+        setBookedSlots(data.bookedSlots || []);
+      }
+    } catch (err) {
+      console.error('Error fetching booked slots:', err);
+    }
+  };
+
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
     if (!agreedTerms) {
-      setErrorMessage('Please check the box to agree to the Le Salon NYC cancellation policy terms.');
+      setErrorMessage('Please check the box to agree to the Le Salon NYC policies.');
       return;
     }
 
@@ -90,16 +112,9 @@ export default function App() {
       service_name: selectedService.service_name,
       starting_price: selectedService.starting_price,
       duration_minutes: selectedService.duration_minutes,
-      start_time: `${bookingDate}T${selectedTimeSlot}`,
       date: bookingDate,
       time: selectedTimeSlot,
       notes: guest.comments,
-      card_data: {
-        name_on_card: card.nameOnCard || guest.fullName,
-        card_number: card.cardNumber,
-        expiry: card.expiry,
-        cvc: card.cvc,
-      }
     };
 
     try {
@@ -112,11 +127,12 @@ export default function App() {
       const data = await res.json();
       if (res.ok && (data.success || data.cancellation_code || data.cancellationCode)) {
         setBookingResult(data);
+        fetchBookedSlots(bookingDate);
       } else {
-        setErrorMessage(data.error || 'Unable to process reservation. Please check input details.');
+        setErrorMessage(data.error || 'Unable to complete reservation. Please try another time slot.');
       }
     } catch (err) {
-      setErrorMessage('Network connection error. Server may be starting up, please try again.');
+      setErrorMessage('Network connection timeout. Server may be waking up, please click confirm again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -138,11 +154,12 @@ export default function App() {
       const data = await res.json();
       if (res.ok && data.success) {
         setCancelResult(data);
+        fetchBookedSlots(bookingDate); // Instantly release freed slot
       } else {
-        setCancelError(data.error || 'Unable to locate matching appointment.');
+        setCancelError(data.error || 'Unable to locate active matching appointment.');
       }
     } catch (err) {
-      setCancelError('Network error connecting to server.');
+      setCancelError('Network error connecting to backend server.');
     } finally {
       setIsSubmitting(false);
     }
@@ -150,7 +167,7 @@ export default function App() {
 
   return (
     <div>
-      {/* Header Navigation */}
+      {/* Header */}
       <header className="app-header">
         <div className="header-inner">
           <div>
@@ -178,52 +195,52 @@ export default function App() {
       <main className="main-container">
         {activeTab === 'book' ? (
           bookingResult ? (
-            /* Confirmation Screen */
+            /* Confirmation View */
             <div className="info-card" style={{ textAlign: 'center', padding: '32px 20px' }}>
               <div style={{ fontSize: '2.5rem', color: '#059669', marginBottom: '10px' }}>✓</div>
               <h2 className="font-serif" style={{ fontSize: '1.5rem', marginBottom: '8px' }}>Reservation Confirmed!</h2>
               <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '16px' }}>
-                Confirmation receipt sent to <strong>{guest.email}</strong>.
+                A confirmation email has been dispatched to <strong>{guest.email}</strong>.
               </p>
               
-              <div style={{ background: '#fafafa', border: '1px solid #e8e6e1', borderRadius: '8px', padding: '14px', textAlign: 'left', marginBottom: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                  <span style={{ color: '#777', fontSize: '0.85rem' }}>Reference Code:</span>
-                  <strong style={{ fontFamily: 'monospace', fontSize: '1rem', color: '#111' }}>{bookingResult.cancellation_code || bookingResult.cancellationCode}</strong>
+              <div style={{ background: '#faf9f6', border: '1px solid #e8e6e1', borderRadius: '8px', padding: '16px', textAlign: 'left', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
+                  <span style={{ color: '#777', fontSize: '0.85rem' }}>Cancellation Reference:</span>
+                  <strong style={{ fontFamily: 'monospace', fontSize: '1.1rem', color: '#c59b27' }}>{bookingResult.cancellation_code || bookingResult.cancellationCode}</strong>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
                   <span style={{ color: '#777', fontSize: '0.85rem' }}>Service:</span>
                   <strong style={{ fontSize: '0.85rem' }}>{selectedService.service_name}</strong>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
                   <span style={{ color: '#777', fontSize: '0.85rem' }}>Date & Time:</span>
                   <span style={{ fontSize: '0.85rem' }}>{bookingDate} at {selectedTimeSlot}</span>
                 </div>
               </div>
 
               <button className="confirm-action-btn" onClick={() => { setBookingResult(null); setCurrentStep(1); }}>
-                Book Another Service
+                Book Another Appointment
               </button>
             </div>
           ) : (
             <div>
-              {/* Step Nav Bar */}
+              {/* Step Navigation Bar */}
               <div className="step-nav-bar">
                 <span className={`step-nav-item ${currentStep === 1 ? 'active' : ''}`} onClick={() => setCurrentStep(1)}>
-                  1. Services
+                  1. Service
                 </span>
                 <span className={`step-nav-item ${currentStep === 2 ? 'active' : ''}`} onClick={() => setCurrentStep(2)}>
-                  2. Professional
+                  2. Stylist
                 </span>
                 <span className={`step-nav-item ${currentStep === 3 ? 'active' : ''}`} onClick={() => setCurrentStep(3)}>
-                  3. Time
+                  3. Date & Time
                 </span>
                 <span className={`step-nav-item ${currentStep === 4 ? 'active' : ''}`} onClick={() => setCurrentStep(4)}>
-                  4. Confirm & Card
+                  4. Confirm
                 </span>
               </div>
 
-              {/* STEP 1: Services */}
+              {/* STEP 1: Service Selection */}
               {currentStep === 1 && (
                 <div>
                   {SERVICES.map((s) => {
@@ -249,16 +266,16 @@ export default function App() {
 
                   <div className="btn-group">
                     <button className="confirm-action-btn" onClick={() => setCurrentStep(2)}>
-                      Continue to Professional → (${selectedService.starting_price})
+                      Continue to Stylist Selection →
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* STEP 2: Professional */}
+              {/* STEP 2: Professional Selection */}
               {currentStep === 2 && (
                 <div>
-                  <h3 className="font-serif" style={{ marginBottom: '14px' }}>Select Professional</h3>
+                  <h3 className="font-serif" style={{ marginBottom: '14px' }}>Select Preferred Stylist</h3>
                   {PROFESSIONALS.map((p) => {
                     const isSelected = selectedProfessional.id === p.id;
                     return (
@@ -284,16 +301,16 @@ export default function App() {
                       ← Back
                     </button>
                     <button className="confirm-action-btn" onClick={() => setCurrentStep(3)}>
-                      Continue to Schedule →
+                      Continue to Date & Time →
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* STEP 3: Time & Date */}
+              {/* STEP 3: Date & Real-Time Time Slot Selection */}
               {currentStep === 3 && (
                 <div>
-                  <h3 className="font-serif" style={{ marginBottom: '14px' }}>Select Date & Time Slot</h3>
+                  <h3 className="font-serif" style={{ marginBottom: '14px' }}>Select Schedule</h3>
                   
                   <div className="form-group">
                     <label className="form-label">Appointment Date</label>
@@ -306,18 +323,21 @@ export default function App() {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Available Time Slot (10:00 AM – 8:00 PM)</label>
+                    <label className="form-label">Available Time Slots</label>
                     <div className="styled-dropdown-wrapper">
                       <select
                         className="styled-dropdown"
                         value={selectedTimeSlot}
                         onChange={(e) => setSelectedTimeSlot(e.target.value)}
                       >
-                        {availableSlots.map((slot) => (
-                          <option key={slot.value} value={slot.value}>
-                            {slot.label}
-                          </option>
-                        ))}
+                        {availableSlots.map((slot) => {
+                          const isBooked = bookedSlots.includes(slot.value);
+                          return (
+                            <option key={slot.value} value={slot.value} disabled={isBooked}>
+                              {slot.label} {isBooked ? '(Already Reserved)' : ''}
+                            </option>
+                          );
+                        })}
                       </select>
                       <div className="dropdown-arrow">▼</div>
                     </div>
@@ -328,19 +348,19 @@ export default function App() {
                       ← Back
                     </button>
                     <button className="confirm-action-btn" onClick={() => setCurrentStep(4)}>
-                      Continue to Guest & Card →
+                      Continue to Guest Details →
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* STEP 4: Confirm & Card Vaulting */}
+              {/* STEP 4: Guest Details & Confirmation */}
               {currentStep === 4 && (
                 <form onSubmit={handleBookingSubmit}>
-                  <h3 className="font-serif" style={{ marginBottom: '14px' }}>Review & Confirm Reservation</h3>
+                  <h3 className="font-serif" style={{ marginBottom: '14px' }}>Complete Reservation</h3>
 
                   <div className="info-card">
-                    <div className="info-card-title">Guest Details</div>
+                    <div className="info-card-title">Guest Contact Details</div>
                     <div className="form-group">
                       <input
                         type="text"
@@ -353,7 +373,7 @@ export default function App() {
                     <div className="form-group">
                       <input
                         type="email"
-                        placeholder="Email Address *"
+                        placeholder="Email Address (for receipt) *"
                         value={guest.email}
                         onChange={(e) => setGuest({ ...guest, email: e.target.value })}
                         required
@@ -371,56 +391,15 @@ export default function App() {
                   </div>
 
                   <div className="info-card">
-                    <div className="info-card-title">Pay by debit or credit card</div>
+                    <div className="info-card-title">Salon Policy & Notes</div>
                     <p className="policy-text" style={{ marginBottom: '10px' }}>
-                      Add card details for reservation hold ($0 charged today).
-                    </p>
-                    <div className="form-group">
-                      <input
-                        type="text"
-                        placeholder="Name on card *"
-                        value={card.nameOnCard}
-                        onChange={(e) => setCard({ ...card, nameOnCard: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="form-group">
-                      <input
-                        type="text"
-                        placeholder="Card number *"
-                        value={card.cardNumber}
-                        onChange={(e) => setCard({ ...card, cardNumber: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      <input
-                        type="text"
-                        placeholder="MM / YY *"
-                        value={card.expiry}
-                        onChange={(e) => setCard({ ...card, expiry: e.target.value })}
-                        required
-                      />
-                      <input
-                        type="text"
-                        placeholder="CVC *"
-                        value={card.cvc}
-                        onChange={(e) => setCard({ ...card, cvc: e.target.value })}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="info-card">
-                    <div className="info-card-title">Salon Policies</div>
-                    <p className="policy-text" style={{ marginBottom: '10px' }}>
-                      Cancel for free up to 24 hours ahead. Cancellations within 24 hours incur a <strong>50% fee</strong> ($37.50). No-shows incur a <strong>100% fee</strong> ($75.00).
+                      Cancellations can be made for free up to 24 hours prior using your unique 6-character reference code.
                     </p>
 
                     <div className="form-group">
-                      <label className="form-label">Comments or special requests</label>
+                      <label className="form-label">Hair notes or special requests</label>
                       <textarea
-                        placeholder="Add hair notes or preferences..."
+                        placeholder="Add notes..."
                         value={guest.comments}
                         onChange={(e) => setGuest({ ...guest, comments: e.target.value })}
                       />
@@ -434,13 +413,12 @@ export default function App() {
                         onChange={(e) => setAgreedTerms(e.target.checked)}
                       />
                       <label htmlFor="terms" style={{ fontSize: '0.8rem', color: '#555' }}>
-                        I agree to the <strong>Le Salon NYC Policies</strong>.
+                        I agree to the <strong>Le Salon NYC Reservation Terms</strong>.
                       </label>
                     </div>
                   </div>
 
-                  {/* Inline Error Notice Directly Above Submit Buttons */}
-                  {errorMessage && <div className="alert-error" style={{ marginBottom: '10px' }}>{errorMessage}</div>}
+                  {errorMessage && <div className="alert-error">{errorMessage}</div>}
 
                   <div className="btn-group">
                     <button type="button" className="back-btn" onClick={() => setCurrentStep(3)}>
@@ -455,25 +433,21 @@ export default function App() {
             </div>
           )
         ) : (
-          /* Manage / Cancel View */
+          /* Manage / Cancel Tab */
           <div className="info-card">
-            <h3 className="font-serif" style={{ marginBottom: '6px' }}>Cancel Reservation</h3>
+            <h3 className="font-serif" style={{ marginBottom: '6px' }}>Manage / Cancel Reservation</h3>
             <p className="policy-text" style={{ marginBottom: '16px' }}>
-              Enter your reference code and email address to process cancellation.
+              Enter your reference code and email address to cancel your appointment and release the slot.
             </p>
 
             {cancelError && <div className="alert-error">{cancelError}</div>}
 
             {cancelResult ? (
-              <div style={{ background: '#fafafa', padding: '12px', borderRadius: '8px', border: '1px solid #e8e6e1' }}>
-                <p style={{ color: '#059669', fontWeight: 600 }}>Canceled Successfully.</p>
-                {cancelResult.feeCharged > 0 ? (
-                  <p style={{ color: '#b91c1c', fontSize: '0.8rem', marginTop: '4px' }}>
-                    50% Late Fee Applied: <strong>${cancelResult.feeCharged.toFixed(2)}</strong>
-                  </p>
-                ) : (
-                  <p style={{ color: '#666', fontSize: '0.8rem', marginTop: '4px' }}>No cancellation fee charged.</p>
-                )}
+              <div style={{ background: '#faf9f6', padding: '16px', borderRadius: '8px', border: '1px solid #e8e6e1' }}>
+                <p style={{ color: '#059669', fontWeight: 600, fontSize: '1rem' }}>✓ Reservation Canceled</p>
+                <p style={{ color: '#555', fontSize: '0.85rem', marginTop: '6px' }}>
+                  The time slot has been freed in our database and a confirmation has been sent to your email.
+                </p>
               </div>
             ) : (
               <form onSubmit={handleCancelSubmit}>
@@ -498,7 +472,7 @@ export default function App() {
                   />
                 </div>
                 <button type="submit" disabled={isSubmitting} className="cancel-btn">
-                  {isSubmitting ? 'Processing...' : 'Cancel Reservation'}
+                  {isSubmitting ? 'Processing...' : 'Cancel Reservation & Release Slot'}
                 </button>
               </form>
             )}
