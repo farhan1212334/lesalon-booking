@@ -3,10 +3,10 @@ import './index.css';
 
 const API_BASE_URL = 'https://lesalon-api.onrender.com/api';
 
-// Complete Le Salon NYC Master Catalog
+// Complete Le Salon NYC Master Service Catalog
 const DEFAULT_SERVICES = [
   { id: 1, name: 'Shampoo Haircut & Blow Dry', price_display: '$75 and up', starting_price: 75, duration_minutes: 75, category: 'Haircut & Styling' },
-  { id: 2, name: 'Shampoo & Blow Dry', price_display: '$40 and up', starting_price: 40, duration_minutes: 45, category: 'Haircut & Styling' },
+  { id: 2, name: 'Shampoo & Blow Dry', price_display: '$40 and up', starting_price: 40, duration_minutes: 45, category: 'Haircut & Styling', variants: [{ name: 'Standard Hair', price: 40, duration: 45 }, { name: 'Long Hair', price: 60, duration: 60 }, { name: 'Extra Long / Thick', price: 80, duration: 75 }] },
   { id: 3, name: 'Single Process Color', price_display: '$100 and up', starting_price: 100, duration_minutes: 75, category: 'Color Services' },
   { id: 4, name: 'Single Process Color & Blow Dry', price_display: '$130 and up', starting_price: 130, duration_minutes: 120, category: 'Color Services' },
   { id: 5, name: 'Single Process & Full Head of Highlights', price_display: '$330 and up', starting_price: 330, duration_minutes: 180, category: 'Color Services' },
@@ -22,20 +22,31 @@ const DEFAULT_SERVICES = [
   { id: 15, name: 'Keratin Protein Treatment', price_display: 'Upon consultation', starting_price: 0, duration_minutes: 150, category: 'Treatments' },
 ];
 
+const STAFF_MEMBERS = [
+  { id: 'any', name: 'Any Professional', role: 'First available stylist', avatar: '✨' },
+  { id: 'ashraf', name: 'Ashraf', role: 'Master Stylist & Owner', avatar: '✂️' },
+  { id: 'ricardo', name: 'Ricardo', role: 'Senior Colorist & Stylist', avatar: '🎨' },
+];
+
 export default function App() {
-  const [viewMode, setViewMode] = useState('booking'); // 'booking' | 'cancel' | 'admin'
-  const [step, setStep] = useState(1);
+  const [viewMode, setViewMode] = useState('booking'); // 'booking' | 'cancel'
+  const [step, setStep] = useState(1); // 1: Services | 2: Professional | 3: Time | 4: Confirm
   const [services, setServices] = useState(DEFAULT_SERVICES);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedService, setSelectedService] = useState(null);
-  
-  // Date & Slot state
+  const [selectedVariant, setSelectedVariant] = useState(null);
+  const [selectedStaff, setSelectedStaff] = useState(STAFF_MEMBERS[0]);
+
+  // Variant Modal State
+  const [variantModalService, setVariantModalService] = useState(null);
+
+  // Date & Slot State
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [availableSlots, setAvailableSlots] = useState([]);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
-  // Client Form state & Policy Checkbox
+  // Client Details & Policies State
   const [formData, setFormData] = useState({ full_name: '', email: '', phone: '', notes: '' });
   const [policyAgreed, setPolicyAgreed] = useState(false);
   const [formErrors, setFormErrors] = useState({});
@@ -43,25 +54,14 @@ export default function App() {
   const [bookingResult, setBookingResult] = useState(null);
   const [serverError, setServerError] = useState('');
 
-  // Cancellation Flow state
+  // Self-Service Cancellation State
   const [cancelData, setCancelData] = useState({ cancellation_code: '', email: '' });
   const [cancelErrors, setCancelErrors] = useState({});
   const [cancelling, setCancelling] = useState(false);
   const [cancelResult, setCancelResult] = useState(null);
   const [cancelServerError, setCancelServerError] = useState('');
 
-  // Admin Dashboard State
-  const [adminPin, setAdminPin] = useState('');
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
-  const [adminAuthError, setAdminAuthError] = useState('');
-  const [adminAppointments, setAdminAppointments] = useState([]);
-  const [adminPendingFees, setAdminPendingFees] = useState([]);
-  const [adminTab, setAdminTab] = useState('appointments'); // 'appointments' | 'fees'
-  const [adminSearch, setAdminSearch] = useState('');
-  const [adminStatusFilter, setAdminStatusFilter] = useState('All');
-  const [adminLoading, setAdminLoading] = useState(false);
-
-  // Fetch backend services with fallback
+  // Fetch Services from API
   useEffect(() => {
     fetch(`${API_BASE_URL}/services`)
       .then((res) => res.json())
@@ -74,23 +74,25 @@ export default function App() {
           setServices(merged);
         }
       })
-      .catch(() => console.log('Using static service catalog'));
+      .catch(() => console.log('Using catalog fallback'));
   }, []);
 
-  // Fetch Booked Slots & Compute Duration Slots
+  // Fetch Booked Slots & Compute NY Time Slots
   useEffect(() => {
     if (!selectedDate || !selectedService) return;
 
     setLoadingSlots(true);
+    const duration = selectedVariant ? selectedVariant.duration : selectedService.duration_minutes;
+
     fetch(`${API_BASE_URL}/booked-slots?date=${selectedDate}`)
       .then((res) => res.json())
       .then((data) => {
         const booked = Array.isArray(data) ? data : [];
-        calculateTimeSlots(selectedDate, selectedService.duration_minutes, booked);
+        calculateTimeSlots(selectedDate, duration, booked);
       })
-      .catch(() => calculateTimeSlots(selectedDate, selectedService.duration_minutes, []))
+      .catch(() => calculateTimeSlots(selectedDate, duration, []))
       .finally(() => setLoadingSlots(false));
-  }, [selectedDate, selectedService]);
+  }, [selectedDate, selectedService, selectedVariant]);
 
   // Strict New York Time Slot Calculation
   const calculateTimeSlots = (dateStr, durationMins, bookedList) => {
@@ -143,18 +145,27 @@ export default function App() {
     setAvailableSlots(slots);
   };
 
-  const handleServiceSelect = (service) => {
-    setSelectedService(service);
-    setSelectedSlot(null);
-    setStep(2);
+  const handleSelectServiceClick = (service) => {
+    if (service.variants && service.variants.length > 0) {
+      setVariantModalService(service);
+    } else {
+      setSelectedService(service);
+      setSelectedVariant(null);
+      setSelectedSlot(null);
+    }
   };
 
-  // Client Form & Policy Checkbox Validations
+  const handleSelectVariant = (service, variant) => {
+    setSelectedService(service);
+    setSelectedVariant(variant);
+    setVariantModalService(null);
+    setSelectedSlot(null);
+  };
+
+  // Form Validation
   const validateForm = () => {
     const errors = {};
-    if (!formData.full_name.trim()) {
-      errors.full_name = 'Full name is required.';
-    }
+    if (!formData.full_name.trim()) errors.full_name = 'Full name is required.';
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!formData.email.trim()) {
@@ -171,7 +182,7 @@ export default function App() {
     }
 
     if (!policyAgreed) {
-      errors.policyAgreed = 'You must acknowledge and accept the salon policies to complete your booking.';
+      errors.policyAgreed = 'You must agree to the salon cancellation policies.';
     }
 
     setFormErrors(errors);
@@ -179,7 +190,7 @@ export default function App() {
   };
 
   const handleFormSubmit = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     if (!validateForm()) return;
 
     setSubmitting(true);
@@ -192,7 +203,7 @@ export default function App() {
         full_name: formData.full_name.trim(),
         email: formData.email.trim(),
         phone: formData.phone.trim(),
-        notes: formData.notes.trim(),
+        notes: `[Staff: ${selectedStaff.name}] ${formData.notes.trim()}`,
       };
 
       const res = await fetch(`${API_BASE_URL}/appointments`, {
@@ -204,9 +215,9 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setBookingResult(data);
-        setStep(4);
+        setStep(5); // Final Receipt Step
       } else {
-        setServerError(data.message || 'Booking failed. Please select another slot.');
+        setServerError(data.message || 'Booking failed. Please try another slot.');
       }
     } catch (err) {
       setServerError('Network error. Please try again.');
@@ -215,16 +226,12 @@ export default function App() {
     }
   };
 
-  // Handle Cancellation Submission
+  // Cancellation Submit
   const handleCancelSubmit = async (e) => {
     e.preventDefault();
     const errors = {};
-    if (!cancelData.cancellation_code.trim()) {
-      errors.cancellation_code = 'Reference code is required.';
-    }
-    if (!cancelData.email.trim()) {
-      errors.email = 'Email address is required.';
-    }
+    if (!cancelData.cancellation_code.trim()) errors.cancellation_code = 'Reference code required.';
+    if (!cancelData.email.trim()) errors.email = 'Email address required.';
     setCancelErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -245,7 +252,7 @@ export default function App() {
       if (data.success) {
         setCancelResult(data);
       } else {
-        setCancelServerError(data.message || 'Could not locate matching active appointment.');
+        setCancelServerError(data.message || 'Could not locate matching appointment.');
       }
     } catch (err) {
       setCancelServerError('Network error. Please try again.');
@@ -254,84 +261,20 @@ export default function App() {
     }
   };
 
-  // -------------------------------------------------------------------------
-  // Admin Methods
-  // -------------------------------------------------------------------------
-  const handleAdminLogin = async (e) => {
-    e.preventDefault();
-    setAdminAuthError('');
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/admin/verify-pin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: adminPin.trim() }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        setIsAdminAuthenticated(true);
-        fetchAdminData();
-      } else {
-        setAdminAuthError(data.message || 'Incorrect PIN Passcode');
-      }
-    } catch (err) {
-      setAdminAuthError('Failed to verify PIN. Please try again.');
-    }
+  // Next Step Validation
+  const canContinue = () => {
+    if (step === 1) return !!selectedService;
+    if (step === 2) return !!selectedStaff;
+    if (step === 3) return !!selectedSlot;
+    if (step === 4) return policyAgreed && formData.full_name && formData.email && formData.phone;
+    return false;
   };
 
-  const fetchAdminData = async () => {
-    setAdminLoading(true);
-    try {
-      const [apptRes, feesRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/admin/appointments`),
-        fetch(`${API_BASE_URL}/admin/pending-fees`),
-      ]);
-      const apptData = await apptRes.json();
-      const feesData = await feesRes.json();
-
-      if (Array.isArray(apptData)) setAdminAppointments(apptData);
-      if (Array.isArray(feesData)) setAdminPendingFees(feesData);
-    } catch (err) {
-      console.error('Error fetching admin data:', err);
-    } finally {
-      setAdminLoading(false);
-    }
-  };
-
-  const handleUpdateApptStatus = async (id, newStatus) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/admin/appointments/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setAdminAppointments((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, status: newStatus } : item))
-        );
-      }
-    } catch (err) {
-      alert('Could not update status');
-    }
-  };
-
-  const handleUpdateFeeStatus = async (id, newStatus) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/admin/pending-fees/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setAdminPendingFees((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, status: newStatus } : item))
-        );
-      }
-    } catch (err) {
-      alert('Could not update fee status');
+  const handleSidebarContinue = () => {
+    if (step < 4) {
+      setStep(step + 1);
+    } else if (step === 4) {
+      handleFormSubmit();
     }
   };
 
@@ -340,711 +283,493 @@ export default function App() {
     ? services
     : services.filter((s) => s.category === selectedCategory);
 
-  // Admin Filtering
-  const filteredAppointments = adminAppointments.filter((item) => {
-    const searchLower = adminSearch.toLowerCase();
-    const matchesSearch =
-      !adminSearch ||
-      (item.full_name && item.full_name.toLowerCase().includes(searchLower)) ||
-      (item.email && item.email.toLowerCase().includes(searchLower)) ||
-      (item.phone && item.phone.includes(searchLower)) ||
-      (item.cancellation_code && item.cancellation_code.toLowerCase().includes(searchLower));
+  // Date Strip Generator (7 Days)
+  const generateDateStrip = () => {
+    const dates = [];
+    const base = new Date();
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() + i);
+      const iso = d.toISOString().split('T')[0];
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+      const dayNum = d.getDate();
+      const monthName = d.toLocaleDateString('en-US', { month: 'short' });
+      dates.push({ iso, dayName, dayNum, monthName });
+    }
+    return dates;
+  };
 
-    const matchesStatus = adminStatusFilter === 'All' || item.status === adminStatusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const activePriceDisplay = selectedVariant ? `$${selectedVariant.price}` : selectedService?.price_display || '$0';
+  const activeDurationDisplay = selectedVariant ? selectedVariant.duration : selectedService?.duration_minutes || 0;
 
   return (
-    <div className="salon-app">
-      {/* Brand Header */}
-      <header className="salon-header">
-        <span className="brand-tagline">Manhattan Flagship</span>
-        <h1 className="brand-title">LE SALON NYC</h1>
-        <p className="brand-organic">EXCLUSIVELY ORGANIC</p>
-        <p className="brand-address">310 East 44th St, New York, NY • (212) 949-6693</p>
+    <div className="fresha-app-shell">
+      {/* Top Header */}
+      <header className="fresha-header">
+        <div className="header-brand">
+          <h1 className="header-title">LE SALON NYC</h1>
+          <span className="header-tagline">EXCLUSIVELY ORGANIC</span>
+        </div>
 
-        <div className="header-nav-toggle">
+        <div className="header-actions">
           <button
-            className={`nav-tab-btn ${viewMode === 'booking' ? 'active' : ''}`}
-            onClick={() => {
-              setViewMode('booking');
-              setCancelResult(null);
-            }}
+            className={`nav-mode-btn ${viewMode === 'booking' ? 'active' : ''}`}
+            onClick={() => { setViewMode('booking'); setStep(1); }}
           >
             Book Appointment
           </button>
           <button
-            className={`nav-tab-btn ${viewMode === 'cancel' ? 'active' : ''}`}
-            onClick={() => {
-              setViewMode('cancel');
-              setBookingResult(null);
-            }}
+            className={`nav-mode-btn ${viewMode === 'cancel' ? 'active' : ''}`}
+            onClick={() => setViewMode('cancel')}
           >
-            Manage / Cancel Reservation
-          </button>
-          <button
-            className={`nav-tab-btn admin-btn ${viewMode === 'admin' ? 'active' : ''}`}
-            onClick={() => {
-              setViewMode('admin');
-              if (isAdminAuthenticated) fetchAdminData();
-            }}
-          >
-            Admin Panel
+            Manage / Cancel
           </button>
         </div>
       </header>
 
-      {/* ADMIN PANEL VIEW */}
-      {viewMode === 'admin' ? (
-        <section className="step-content">
-          {!isAdminAuthenticated ? (
-            <div className="admin-login-card">
-              <div className="admin-lock-icon">🔒</div>
-              <h2>Salon Staff Access</h2>
-              <p>Enter the 6-digit admin passcode to view reservations and customer files.</p>
-
-              <form onSubmit={handleAdminLogin} className="client-form-card" style={{ padding: 0 }}>
-                {adminAuthError && <div className="error-banner">{adminAuthError}</div>}
-                <div className="form-field">
-                  <label className="field-label">Admin Passcode PIN</label>
-                  <input
-                    type="password"
-                    className="form-input text-center-input"
-                    placeholder="Enter PIN (Default: 212949)"
-                    value={adminPin}
-                    onChange={(e) => setAdminPin(e.target.value)}
-                  />
-                </div>
-                <button type="submit" className="btn-primary full-width">
-                  Unlock Dashboard
-                </button>
-              </form>
-            </div>
-          ) : (
-            <div className="admin-dashboard">
-              <div className="admin-header-row">
-                <div>
-                  <h2>Salon Management Dashboard</h2>
-                  <p className="admin-subtitle">Live bookings & late fee records synced with PostgreSQL.</p>
-                </div>
-                <button className="btn-secondary-sm" onClick={() => fetchAdminData()}>
-                  🔄 Refresh Data
-                </button>
-              </div>
-
-              {/* Sub-Nav Tabs */}
-              <div className="admin-subtabs">
-                <button
-                  className={`subtab-btn ${adminTab === 'appointments' ? 'active' : ''}`}
-                  onClick={() => setAdminTab('appointments')}
-                >
-                  Master Bookings ({adminAppointments.length})
-                </button>
-                <button
-                  className={`subtab-btn ${adminTab === 'fees' ? 'active' : ''}`}
-                  onClick={() => setAdminTab('fees')}
-                >
-                  Flagged Late Fees ({adminPendingFees.filter((f) => f.status === 'unpaid').length} Unpaid)
-                </button>
-              </div>
-
-              {adminLoading ? (
-                <div className="loading-spinner">Loading database records...</div>
-              ) : adminTab === 'appointments' ? (
-                <>
-                  {/* Controls Bar */}
-                  <div className="admin-controls-bar">
-                    <input
-                      type="text"
-                      className="admin-search-input"
-                      placeholder="Search by name, email, phone, or ref code..."
-                      value={adminSearch}
-                      onChange={(e) => setAdminSearch(e.target.value)}
-                    />
-
-                    <div className="status-filter-group">
-                      <span className="filter-label">Filter:</span>
-                      {['All', 'confirmed', 'completed', 'cancelled'].map((st) => (
-                        <button
-                          key={st}
-                          className={`filter-chip-sm ${adminStatusFilter === st ? 'active' : ''}`}
-                          onClick={() => setAdminStatusFilter(st)}
-                        >
-                          {st}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Appointments Table */}
-                  <div className="table-responsive">
-                    <table className="admin-table">
-                      <thead>
-                        <tr>
-                          <th>Date & Time (NY)</th>
-                          <th>Client Details</th>
-                          <th>Reserved Service</th>
-                          <th>Ref Code</th>
-                          <th>Status</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredAppointments.length === 0 ? (
-                          <tr>
-                            <td colSpan="6" className="text-center-cell">No matching reservations found.</td>
-                          </tr>
-                        ) : (
-                          filteredAppointments.map((appt) => (
-                            <tr key={appt.id}>
-                              <td>
-                                <strong style={{ display: 'block' }}>
-                                  {new Date(appt.start_time).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
-                                </strong>
-                                <span className="text-muted-sm">
-                                  {new Date(appt.start_time).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' })}
-                                </span>
-                              </td>
-                              <td>
-                                <strong>{appt.full_name}</strong>
-                                <div className="text-muted-sm">{appt.email}</div>
-                                <div className="text-muted-sm">{appt.phone}</div>
-                              </td>
-                              <td>
-                                <div>{appt.service_name}</div>
-                                <span className="text-muted-sm">{appt.duration_minutes} Mins</span>
-                              </td>
-                              <td>
-                                <code className="code-badge">{appt.cancellation_code}</code>
-                              </td>
-                              <td>
-                                <span className={`badge-status badge-${appt.status}`}>
-                                  {appt.status || 'confirmed'}
-                                </span>
-                              </td>
-                              <td>
-                                <div className="table-actions-group">
-                                  {appt.status !== 'completed' && appt.status !== 'cancelled' && (
-                                    <button
-                                      className="action-btn action-complete"
-                                      title="Mark Completed"
-                                      onClick={() => handleUpdateApptStatus(appt.id, 'completed')}
-                                    >
-                                      ✓ Complete
-                                    </button>
-                                  )}
-                                  {appt.status !== 'cancelled' && (
-                                    <button
-                                      className="action-btn action-cancel"
-                                      title="Cancel Reservation"
-                                      onClick={() => handleUpdateApptStatus(appt.id, 'cancelled')}
-                                    >
-                                      ✕ Cancel
-                                    </button>
-                                  )}
-                                  {appt.status === 'cancelled' && (
-                                    <button
-                                      className="action-btn action-restore"
-                                      onClick={() => handleUpdateApptStatus(appt.id, 'confirmed')}
-                                    >
-                                      Re-activate
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              ) : (
-                /* Pending Fees Management Table */
-                <div className="table-responsive">
-                  <table className="admin-table">
-                    <thead>
-                      <tr>
-                        <th>Flagged Client</th>
-                        <th>Service</th>
-                        <th>50% Fee Due</th>
-                        <th>Reason</th>
-                        <th>Status</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {adminPendingFees.length === 0 ? (
-                        <tr>
-                          <td colSpan="6" className="text-center-cell">No flagged cancellation fees on record.</td>
-                        </tr>
-                      ) : (
-                        adminPendingFees.map((fee) => (
-                          <tr key={fee.id}>
-                            <td>
-                              <strong>{fee.full_name}</strong>
-                              <div className="text-muted-sm">{fee.email}</div>
-                              <div className="text-muted-sm">{fee.phone}</div>
-                            </td>
-                            <td>{fee.service_name}</td>
-                            <td>
-                              <strong className="gold-text">${parseFloat(fee.amount_due).toFixed(2)}</strong>
-                            </td>
-                            <td>{fee.reason || 'Late Cancellation (<24h)'}</td>
-                            <td>
-                              <span className={`badge-status badge-${fee.status}`}>
-                                {fee.status}
-                              </span>
-                            </td>
-                            <td>
-                              {fee.status === 'unpaid' ? (
-                                <button
-                                  className="action-btn action-complete"
-                                  onClick={() => handleUpdateFeeStatus(fee.id, 'paid')}
-                                >
-                                  Mark as Paid
-                                </button>
-                              ) : (
-                                <button
-                                  className="action-btn action-restore"
-                                  onClick={() => handleUpdateFeeStatus(fee.id, 'unpaid')}
-                                >
-                                  Re-open Fee
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-      ) : viewMode === 'cancel' ? (
-        /* CANCELLATION WORKFLOW VIEW */
-        <section className="step-content">
+      {/* CANCELLATION PORTAL VIEW */}
+      {viewMode === 'cancel' ? (
+        <main className="cancel-standalone-container">
           {!cancelResult ? (
-            <>
-              <div className="section-header">
-                <h2>Cancel an Existing Appointment</h2>
-                <p>Enter your 6-character reference code and booking email to cancel your reservation.</p>
+            <div className="cancel-card-box">
+              <h2>Cancel an Appointment</h2>
+              <p className="subtitle">Enter your 6-character reference code and booking email.</p>
+
+              <div className="policy-alert-banner">
+                <strong>Cancellation Policy:</strong> Free cancellations up to 24 hours prior. Cancellations within 24 hours incur a 50% fee.
               </div>
 
-              <div className="policies-card">
-                <h3 className="policies-title">Cancellation Policy Reminder</h3>
-                <ul className="policies-list">
-                  <li className="policy-item">
-                    <span className="policy-bullet">⏰</span>
-                    <div>
-                      <strong>24-Hour Notice Required:</strong> Cancellations made at least 24 hours prior to your scheduled time are penalty-free. Cancellations within 24 hours or last-minute no-shows incur a <strong>50% service fee</strong>.
-                    </div>
-                  </li>
-                </ul>
-              </div>
-
-              <form onSubmit={handleCancelSubmit} className="client-form-card" noValidate>
+              <form onSubmit={handleCancelSubmit} noValidate>
                 {cancelServerError && <div className="error-banner">{cancelServerError}</div>}
 
-                <div className="form-field">
-                  <label className="field-label">Reference Code <span className="required-star">*</span></label>
+                <div className="form-group">
+                  <label>Reference Code *</label>
                   <input
                     type="text"
-                    className={`form-input uppercase-input ${cancelErrors.cancellation_code ? 'invalid' : ''}`}
+                    className="styled-input uppercase"
                     placeholder="e.g. Q705VD"
                     value={cancelData.cancellation_code}
                     onChange={(e) => setCancelData({ ...cancelData, cancellation_code: e.target.value.toUpperCase() })}
                   />
-                  {cancelErrors.cancellation_code && <span className="field-error">{cancelErrors.cancellation_code}</span>}
+                  {cancelErrors.cancellation_code && <span className="input-error">{cancelErrors.cancellation_code}</span>}
                 </div>
 
-                <div className="form-field">
-                  <label className="field-label">Email Address <span className="required-star">*</span></label>
+                <div className="form-group">
+                  <label>Email Address *</label>
                   <input
                     type="email"
-                    className={`form-input ${cancelErrors.email ? 'invalid' : ''}`}
+                    className="styled-input"
                     placeholder="name@example.com"
                     value={cancelData.email}
                     onChange={(e) => setCancelData({ ...cancelData, email: e.target.value })}
                   />
-                  {cancelErrors.email && <span className="field-error">{cancelErrors.email}</span>}
+                  {cancelErrors.email && <span className="input-error">{cancelErrors.email}</span>}
                 </div>
 
-                <div className="step-actions">
-                  <button type="button" className="btn-secondary" onClick={() => setViewMode('booking')}>
-                    Back to Booking
-                  </button>
-                  <button type="submit" className="btn-danger" disabled={cancelling}>
-                    {cancelling ? 'Verifying...' : 'Cancel Reservation'}
-                  </button>
-                </div>
+                <button type="submit" className="btn-danger-lg" disabled={cancelling}>
+                  {cancelling ? 'Verifying...' : 'Cancel Reservation'}
+                </button>
               </form>
-            </>
+            </div>
           ) : (
-            <div className="confirmation-view">
-              <div className="cancel-badge-icon">✕</div>
-              <h2 className="confirmation-title">Reservation Cancelled</h2>
-              <p className="confirmation-subtext">
-                Your reservation <strong>({cancelData.cancellation_code})</strong> has been successfully cancelled.
-              </p>
+            <div className="cancel-card-box text-center">
+              <div className="cancel-icon">✕</div>
+              <h2>Reservation Cancelled</h2>
+              <p>Reference Code: <strong>{cancelData.cancellation_code}</strong></p>
 
               {cancelResult.isLateCancellation && (
-                <div className="warning-banner">
-                  <strong>Notice on Late Cancellation:</strong> This appointment was cancelled within 24 hours of the scheduled time. Per salon policy, a 50% service charge (${cancelResult.feeAmount || '37.50'}) has been added to your account balance.
+                <div className="warning-banner-box">
+                  <strong>Late Cancellation Notice:</strong> Cancelled within 24 hours. A 50% service balance (${cancelResult.feeAmount || '37.50'}) has been logged to your customer profile.
                 </div>
               )}
 
-              <button
-                className="btn-primary"
-                onClick={() => {
-                  setViewMode('booking');
-                  setStep(1);
-                  setCancelResult(null);
-                  setCancelData({ cancellation_code: '', email: '' });
-                }}
-              >
+              <button className="btn-primary-lg" onClick={() => { setViewMode('booking'); setStep(1); setCancelResult(null); }}>
                 Return to Service Menu
               </button>
             </div>
           )}
-        </section>
+        </main>
+      ) : step === 5 && bookingResult ? (
+        /* RECEIPT / SUCCESS VIEW */
+        <main className="receipt-container">
+          <div className="receipt-card">
+            <div className="success-icon">✓</div>
+            <h2>Reservation Confirmed!</h2>
+            <p className="receipt-sub">Confirmation dispatched to <strong>{formData.email}</strong></p>
+
+            <div className="ref-code-box">
+              <span>CANCELLATION REFERENCE CODE</span>
+              <strong>{bookingResult.cancellation_code}</strong>
+            </div>
+
+            <div className="receipt-details-list">
+              <div className="row"><span>Customer:</span> <strong>{formData.full_name}</strong></div>
+              <div className="row"><span>Service:</span> <strong>{selectedService.name} {selectedVariant ? `(${selectedVariant.name})` : ''}</strong></div>
+              <div className="row"><span>Professional:</span> <strong>{selectedStaff.name}</strong></div>
+              <div className="row"><span>Date & Time:</span> <strong>{selectedSlot?.timeDisplay} (New York Time)</strong></div>
+              <div className="row"><span>Location:</span> <strong>310 East 44th St, Manhattan, NY 10017</strong></div>
+            </div>
+
+            <button
+              className="btn-primary-lg"
+              onClick={() => {
+                setStep(1);
+                setSelectedService(null);
+                setSelectedVariant(null);
+                setSelectedSlot(null);
+                setBookingResult(null);
+              }}
+            >
+              Book Another Appointment
+            </button>
+          </div>
+        </main>
       ) : (
-        <>
-          {/* Step Progress Bar */}
-          <nav className="step-bar">
-            <div className={`step-node ${step >= 1 ? 'active' : ''}`} onClick={() => step > 1 && setStep(1)}>
-              <span className="step-num">1</span>
-              <span className="step-label">Select Service</span>
-            </div>
-            <div className={`step-line ${step >= 2 ? 'active' : ''}`} />
-            <div className={`step-node ${step >= 2 ? 'active' : ''}`} onClick={() => step > 2 && setStep(2)}>
-              <span className="step-num">2</span>
-              <span className="step-label">Date & Time</span>
-            </div>
-            <div className={`step-line ${step >= 3 ? 'active' : ''}`} />
-            <div className={`step-node ${step >= 3 ? 'active' : ''}`}>
-              <span className="step-num">3</span>
-              <span className="step-label">Client Details</span>
-            </div>
-          </nav>
+        /* MAIN SPLIT-SCREEN BOOKING LAYOUT */
+        <main className="fresha-split-layout">
+          {/* LEFT COLUMN: MULTI-STEP FLOW */}
+          <div className="flow-main-column">
+            {/* Top Stepper Breadcrumbs */}
+            <nav className="stepper-breadcrumbs">
+              <span className={`step-item ${step === 1 ? 'active' : step > 1 ? 'completed' : ''}`} onClick={() => setStep(1)}>
+                1. Services
+              </span>
+              <span className="chevron">›</span>
+              <span className={`step-item ${step === 2 ? 'active' : step > 2 ? 'completed' : ''}`} onClick={() => selectedService && setStep(2)}>
+                2. Professional
+              </span>
+              <span className="chevron">›</span>
+              <span className={`step-item ${step === 3 ? 'active' : step > 3 ? 'completed' : ''}`} onClick={() => selectedService && selectedStaff && setStep(3)}>
+                3. Time
+              </span>
+              <span className="chevron">›</span>
+              <span className={`step-item ${step === 4 ? 'active' : ''}`}>
+                4. Confirm
+              </span>
+            </nav>
 
-          {/* STEP 1: SERVICES CATALOG GRID */}
-          {step === 1 && (
-            <section className="step-content">
-              <div className="section-header">
-                <h2>Our Service Menu</h2>
-                <p>Select a luxury service to view available reservation times.</p>
-              </div>
+            {/* STEP 1: SELECT SERVICES */}
+            {step === 1 && (
+              <section className="step-panel">
+                <h2 className="panel-title">Select Services</h2>
 
-              <div className="category-filter">
-                {categories.map((cat) => (
-                  <button
-                    key={cat}
-                    className={`filter-chip ${selectedCategory === cat ? 'active' : ''}`}
-                    onClick={() => setSelectedCategory(cat)}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
+                {/* Category Pills */}
+                <div className="category-pill-bar">
+                  {categories.map((cat) => (
+                    <button
+                      key={cat}
+                      className={`cat-pill ${selectedCategory === cat ? 'active' : ''}`}
+                      onClick={() => setSelectedCategory(cat)}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
 
-              <div className="services-grid">
-                {filteredServices.map((service) => (
-                  <div
-                    key={service.id}
-                    className="service-card"
-                    onClick={() => handleServiceSelect(service)}
-                  >
-                    <div className="card-top">
-                      <span className="category-badge">{service.category}</span>
-                      <span className="service-duration">⏱ {service.duration_minutes} Mins</span>
-                    </div>
-                    <h3 className="service-name">{service.name}</h3>
-                    <div className="card-bottom">
-                      <div className="price-tag">
-                        <span className="price-val">{service.price_display}</span>
+                {/* Services List */}
+                <div className="services-list-container">
+                  {filteredServices.map((service) => {
+                    const isSelected = selectedService?.id === service.id;
+                    return (
+                      <div
+                        key={service.id}
+                        className={`service-list-card ${isSelected ? 'selected' : ''}`}
+                        onClick={() => handleSelectServiceClick(service)}
+                      >
+                        <div className="service-info">
+                          <h3 className="service-title-text">{service.name}</h3>
+                          <span className="service-meta">⏱ {service.duration_minutes} Mins • {service.category}</span>
+                        </div>
+
+                        <div className="service-price-action">
+                          <span className="price-text">{service.price_display}</span>
+                          <button className={`add-circle-btn ${isSelected ? 'active' : ''}`}>
+                            {isSelected ? '✓' : '+'}
+                          </button>
+                        </div>
                       </div>
-                      <span className="card-btn">Select Slot →</span>
-                    </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* STEP 2: SELECT PROFESSIONAL */}
+            {step === 2 && (
+              <section className="step-panel">
+                <button className="back-link-btn" onClick={() => setStep(1)}>← Back to Services</button>
+                <h2 className="panel-title">Select Professional</h2>
+                <p className="panel-subtitle">Choose a specific stylist or select any available team member.</p>
+
+                <div className="staff-grid">
+                  {STAFF_MEMBERS.map((staff) => {
+                    const isSelected = selectedStaff.id === staff.id;
+                    return (
+                      <div
+                        key={staff.id}
+                        className={`staff-card ${isSelected ? 'selected' : ''}`}
+                        onClick={() => setSelectedStaff(staff)}
+                      >
+                        <div className="staff-avatar">{staff.avatar}</div>
+                        <div className="staff-details">
+                          <h4>{staff.name}</h4>
+                          <p>{staff.role}</p>
+                        </div>
+                        <button className={`select-chip-btn ${isSelected ? 'active' : ''}`}>
+                          {isSelected ? 'Selected' : 'Select'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* STEP 3: SELECT DATE AND TIME */}
+            {step === 3 && (
+              <section className="step-panel">
+                <button className="back-link-btn" onClick={() => setStep(2)}>← Back to Professional</button>
+                <h2 className="panel-title">Select Date & Time</h2>
+
+                {/* Horizontal Date Strip Carousel */}
+                <div className="date-strip-wrapper">
+                  <div className="date-strip">
+                    {generateDateStrip().map((item) => {
+                      const isSelected = selectedDate === item.iso;
+                      return (
+                        <button
+                          key={item.iso}
+                          className={`date-tile ${isSelected ? 'selected' : ''}`}
+                          onClick={() => { setSelectedDate(item.iso); setSelectedSlot(null); }}
+                        >
+                          <span className="day-name">{item.dayName}</span>
+                          <span className="day-num">{item.dayNum}</span>
+                          <span className="month-name">{item.monthName}</span>
+                        </button>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* STEP 2: DYNAMIC CALENDAR & TIME SLOTS */}
-          {step === 2 && selectedService && (
-            <section className="step-content">
-              <div className="section-header">
-                <button className="back-link" onClick={() => setStep(1)}>← Change Service</button>
-                <h2>Select Date & Duration Slot</h2>
-                <div className="service-summary-badge">
-                  <span>Selected: <strong>{selectedService.name}</strong></span>
-                  <span>Price: <strong>{selectedService.price_display}</strong></span>
-                  <span>Session: <strong>{selectedService.duration_minutes} Minutes</strong></span>
-                </div>
-              </div>
-
-              <div className="booking-panel">
-                <div className="form-field">
-                  <label className="field-label">Choose Appointment Date</label>
-                  <input
-                    type="date"
-                    className="custom-date-input"
-                    value={selectedDate}
-                    min={new Date().toISOString().split('T')[0]}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                  />
                 </div>
 
-                <div className="slots-container">
-                  <label className="field-label">
-                    Available {selectedService.duration_minutes}-Min Slots for {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}:
-                  </label>
+                {/* Time Slots Grid */}
+                <div className="slots-section">
+                  <h4 className="slots-heading">Available Time Slots (New York Time)</h4>
 
                   {loadingSlots ? (
-                    <div className="loading-spinner">Calculating open slots...</div>
+                    <div className="loading-spinner-box">Calculating open slots...</div>
                   ) : availableSlots.length === 0 ? (
-                    <p className="no-slots">No slots remaining for this date. Please select another date above.</p>
+                    <p className="no-slots-msg">No slots remaining for this date. Please pick another date above.</p>
                   ) : (
-                    <div className="slots-grid">
+                    <div className="fresha-slots-grid">
                       {availableSlots.map((slot, idx) => (
                         <button
                           key={idx}
                           disabled={slot.isBooked}
-                          className={`slot-chip ${slot.isBooked ? 'booked' : ''} ${
-                            selectedSlot?.isoStart === slot.isoStart ? 'selected' : ''
-                          }`}
+                          className={`time-chip ${slot.isBooked ? 'booked' : ''} ${selectedSlot?.isoStart === slot.isoStart ? 'selected' : ''}`}
                           onClick={() => setSelectedSlot(slot)}
                         >
-                          <span className="slot-range">{slot.timeDisplay}</span>
-                          {slot.isBooked && <span className="booked-subtext">Booked</span>}
+                          {slot.timeDisplay.split(' – ')[0]}
+                          {slot.isBooked && <span className="booked-sub">Booked</span>}
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
+              </section>
+            )}
+
+            {/* STEP 4: REVIEW & CONFIRM */}
+            {step === 4 && (
+              <section className="step-content">
+                <button className="back-link-btn" onClick={() => setStep(3)}>← Back to Date & Time</button>
+                <h2 className="panel-title">Review and Confirm</h2>
+
+                <div className="in-salon-notice-card">
+                  <span className="notice-icon">💳</span>
+                  <div>
+                    <strong>Payment Method: In-Salon Collection</strong>
+                    <p>You won't be charged online now. Payment is collected in store after your appointment.</p>
+                  </div>
+                </div>
+
+                {serverError && <div className="error-banner">{serverError}</div>}
+
+                <form className="checkout-form-box" noValidate>
+                  <div className="form-group">
+                    <label>Full Name *</label>
+                    <input
+                      type="text"
+                      className={`styled-input ${formErrors.full_name ? 'invalid' : ''}`}
+                      placeholder="e.g. Farhan Umar"
+                      value={formData.full_name}
+                      onChange={(e) => {
+                        setFormData({ ...formData, full_name: e.target.value });
+                        if (formErrors.full_name) setFormErrors({ ...formErrors, full_name: null });
+                      }}
+                    />
+                    {formErrors.full_name && <span className="input-error">{formErrors.full_name}</span>}
+                  </div>
+
+                  <div className="form-row-2col">
+                    <div className="form-group">
+                      <label>Email Address *</label>
+                      <input
+                        type="email"
+                        className={`styled-input ${formErrors.email ? 'invalid' : ''}`}
+                        placeholder="name@example.com"
+                        value={formData.email}
+                        onChange={(e) => {
+                          setFormData({ ...formData, email: e.target.value });
+                          if (formErrors.email) setFormErrors({ ...formErrors, email: null });
+                        }}
+                      />
+                      {formErrors.email && <span className="input-error">{formErrors.email}</span>}
+                    </div>
+
+                    <div className="form-group">
+                      <label>Phone Number *</label>
+                      <input
+                        type="tel"
+                        className={`styled-input ${formErrors.phone ? 'invalid' : ''}`}
+                        placeholder="(212) 555-0199"
+                        value={formData.phone}
+                        onChange={(e) => {
+                          setFormData({ ...formData, phone: e.target.value });
+                          if (formErrors.phone) setFormErrors({ ...formErrors, phone: null });
+                        }}
+                      />
+                      {formErrors.phone && <span className="input-error">{formErrors.phone}</span>}
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Special Requests or Notes (Optional)</label>
+                    <textarea
+                      className="styled-textarea"
+                      rows="3"
+                      placeholder="Mention hair length, preferences, or sensitivities..."
+                      value={formData.notes}
+                      onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    />
+                  </div>
+
+                  {/* Mandatory Policy Agreement Checkbox */}
+                  <div className="policy-checkbox-card">
+                    <h4 className="policy-heading">Salon Terms & Cancellation Policy</h4>
+                    <ul className="policy-bullets">
+                      <li>Payment due at salon (Cash, Visa, MasterCard, Discover. <em>No AmEx</em>).</li>
+                      <li>Monetary refunds are not offered; unsatisfactory work will be fixed/redone.</li>
+                      <li>Cancellations require 24 hours notice. Late cancellations incur a 50% fee.</li>
+                    </ul>
+
+                    <label className="checkbox-flex">
+                      <input
+                        type="checkbox"
+                        className="styled-checkbox"
+                        checked={policyAgreed}
+                        onChange={(e) => {
+                          setPolicyAgreed(e.target.checked);
+                          if (formErrors.policyAgreed) setFormErrors({ ...formErrors, policyAgreed: null });
+                        }}
+                      />
+                      <span>
+                        I acknowledge and accept the <strong>Le Salon NYC Policies</strong>.
+                      </span>
+                    </label>
+                    {formErrors.policyAgreed && <span className="input-error block">{formErrors.policyAgreed}</span>}
+                  </div>
+                </form>
+              </section>
+            )}
+          </div>
+
+          {/* RIGHT COLUMN: STICKY SUMMARY SIDEBAR */}
+          <aside className="sticky-summary-column">
+            <div className="summary-card">
+              {/* Salon Header */}
+              <div className="summary-salon-header">
+                <div className="salon-thumbnail">💈</div>
+                <div>
+                  <h3 className="salon-name">Le Salon NYC</h3>
+                  <p className="salon-rating">4.95 ★★★★★ <span className="rating-count">(950+)</span></p>
+                  <p className="salon-address">310 East 44th St, Manhattan, NY</p>
+                </div>
               </div>
 
-              <div className="step-actions">
-                <button className="btn-secondary" onClick={() => setStep(1)}>Back</button>
+              {/* Selected Item Breakdown */}
+              <div className="summary-body">
+                {selectedService ? (
+                  <div className="selected-item-row">
+                    <div className="item-title-col">
+                      <h4>{selectedService.name}</h4>
+                      {selectedVariant && <span className="variant-tag">{selectedVariant.name}</span>}
+                      <p className="item-duration">{activeDurationDisplay} min with {selectedStaff.name}</p>
+                    </div>
+                    <div className="item-price">{activePriceDisplay}</div>
+                  </div>
+                ) : (
+                  <p className="empty-summary-text">No services selected yet.</p>
+                )}
+
+                {selectedSlot && (
+                  <div className="selected-time-box">
+                    <span className="clock-icon">🕒</span>
+                    <div>
+                      <strong>{new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</strong>
+                      <p>{selectedSlot.timeDisplay} (NY Time)</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer / Total */}
+              <div className="summary-footer">
+                <div className="total-row">
+                  <span>Total</span>
+                  <strong className="total-price">{activePriceDisplay}</strong>
+                </div>
+
                 <button
-                  className="btn-primary"
-                  disabled={!selectedSlot}
-                  onClick={() => setStep(3)}
+                  className="btn-continue-main"
+                  disabled={!canContinue() || submitting}
+                  onClick={handleSidebarContinue}
                 >
-                  Continue to Guest Details →
+                  {submitting ? 'Processing...' : step === 4 ? 'Confirm Reservation' : 'Continue →'}
                 </button>
               </div>
-            </section>
-          )}
+            </div>
+          </aside>
+        </main>
+      )}
 
-          {/* STEP 3: CLIENT DETAILS FORM WITH POLICY CHECKBOX */}
-          {step === 3 && selectedService && selectedSlot && (
-            <section className="step-content">
-              <div className="section-header">
-                <button className="back-link" onClick={() => setStep(2)}>← Change Date/Time</button>
-                <h2>Guest Details & Reservation Review</h2>
-                <p>Please enter your contact information to finalize your appointment.</p>
-              </div>
+      {/* VARIANT OPTIONS POPUP MODAL */}
+      {variantModalService && (
+        <div className="modal-overlay" onClick={() => setVariantModalService(null)}>
+          <div className="modal-content-box" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{variantModalService.name}</h3>
+              <button className="close-modal-btn" onClick={() => setVariantModalService(null)}>✕</button>
+            </div>
 
-              <div className="summary-card-panel">
-                <h3 className="summary-card-title">Booking Overview</h3>
-                <div className="summary-grid">
-                  <div className="summary-cell">
-                    <span className="cell-label">Service</span>
-                    <span className="cell-val">{selectedService.name}</span>
+            <p className="modal-sub">Select hair length or service variation:</p>
+
+            <div className="variants-list">
+              {variantModalService.variants.map((v, i) => (
+                <div
+                  key={i}
+                  className="variant-option-card"
+                  onClick={() => handleSelectVariant(variantModalService, v)}
+                >
+                  <div>
+                    <strong>{v.name}</strong>
+                    <p className="text-muted">{v.duration} Mins</p>
                   </div>
-                  <div className="summary-cell">
-                    <span className="cell-label">Duration</span>
-                    <span className="cell-val">{selectedService.duration_minutes} Minutes</span>
-                  </div>
-                  <div className="summary-cell">
-                    <span className="cell-label">Reserved Time (NY Time)</span>
-                    <span className="cell-val">{selectedSlot.timeDisplay}</span>
-                  </div>
-                  <div className="summary-cell">
-                    <span className="cell-label">Estimated Price</span>
-                    <span className="cell-val gold-text">{selectedService.price_display}</span>
-                  </div>
+                  <div className="variant-price">${v.price}</div>
                 </div>
-              </div>
-
-              {/* Structured Salon Policies Card */}
-              <div className="policies-card">
-                <h3 className="policies-title">Salon Policies & Terms</h3>
-                <ul className="policies-list">
-                  <li className="policy-item">
-                    <span className="policy-bullet">💳</span>
-                    <div>
-                      <strong>In-Salon Payment:</strong> Payment is due at the salon upon service completion. We accept Cash, Visa, MasterCard, and Discover. <em>(American Express is NOT accepted)</em>.
-                    </div>
-                  </li>
-                  <li className="policy-item">
-                    <span className="policy-bullet">✨</span>
-                    <div>
-                      <strong>Satisfaction Guarantee:</strong> If you are unsatisfied with your hair outcome, we will happily fix or redo your service. We do not offer monetary refunds under any circumstances.
-                    </div>
-                  </li>
-                  <li className="policy-item">
-                    <span className="policy-bullet">⏰</span>
-                    <div>
-                      <strong>24-Hour Cancellation Policy:</strong> Cancellations must be made at least 24 hours prior to your scheduled time. Cancellations made within 24 hours or last-minute no-shows will be charged a <strong>50% service fee</strong>.
-                    </div>
-                  </li>
-                </ul>
-
-                {/* Mandatory Policy Agreement Checkbox */}
-                <div className="policy-checkbox-container">
-                  <label className="checkbox-label">
-                    <input
-                      type="checkbox"
-                      className="styled-checkbox"
-                      checked={policyAgreed}
-                      onChange={(e) => {
-                        setPolicyAgreed(e.target.checked);
-                        if (formErrors.policyAgreed) setFormErrors({ ...formErrors, policyAgreed: null });
-                      }}
-                    />
-                    <span>
-                      I have read, understood, and agree to the <strong>Le Salon NYC Policies</strong>, including the 24-hour cancellation terms.
-                    </span>
-                  </label>
-                  {formErrors.policyAgreed && <span className="field-error block-error">{formErrors.policyAgreed}</span>}
-                </div>
-              </div>
-
-              <form onSubmit={handleFormSubmit} className="client-form-card" noValidate>
-                {serverError && <div className="error-banner warning-banner-large">{serverError}</div>}
-
-                <div className="form-field">
-                  <label className="field-label">Full Name <span className="required-star">*</span></label>
-                  <input
-                    type="text"
-                    className={`form-input ${formErrors.full_name ? 'invalid' : ''}`}
-                    placeholder="e.g. Farhan Umar"
-                    value={formData.full_name}
-                    onChange={(e) => {
-                      setFormData({ ...formData, full_name: e.target.value });
-                      if (formErrors.full_name) setFormErrors({ ...formErrors, full_name: null });
-                    }}
-                  />
-                  {formErrors.full_name && <span className="field-error">{formErrors.full_name}</span>}
-                </div>
-
-                <div className="form-row">
-                  <div className="form-field">
-                    <label className="field-label">Email Address <span className="required-star">*</span></label>
-                    <input
-                      type="email"
-                      className={`form-input ${formErrors.email ? 'invalid' : ''}`}
-                      placeholder="name@example.com"
-                      value={formData.email}
-                      onChange={(e) => {
-                        setFormData({ ...formData, email: e.target.value });
-                        if (formErrors.email) setFormErrors({ ...formErrors, email: null });
-                      }}
-                    />
-                    {formErrors.email && <span className="field-error">{formErrors.email}</span>}
-                  </div>
-
-                  <div className="form-field">
-                    <label className="field-label">Phone Number <span className="required-star">*</span></label>
-                    <input
-                      type="tel"
-                      className={`form-input ${formErrors.phone ? 'invalid' : ''}`}
-                      placeholder="(212) 555-0199"
-                      value={formData.phone}
-                      onChange={(e) => {
-                        setFormData({ ...formData, phone: e.target.value });
-                        if (formErrors.phone) setFormErrors({ ...formErrors, phone: null });
-                      }}
-                    />
-                    {formErrors.phone && <span className="field-error">{formErrors.phone}</span>}
-                  </div>
-                </div>
-
-                <div className="form-field">
-                  <label className="field-label">Special Notes or Requests (Optional)</label>
-                  <textarea
-                    className="form-textarea"
-                    rows="3"
-                    placeholder="Mention hair length, preferences, or sensitivities..."
-                    value={formData.notes}
-                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  />
-                </div>
-
-                <div className="step-actions">
-                  <button type="button" className="btn-secondary" onClick={() => setStep(2)}>Back</button>
-                  <button type="submit" className="btn-primary" disabled={submitting}>
-                    {submitting ? 'Processing...' : 'Complete Reservation'}
-                  </button>
-                </div>
-              </form>
-            </section>
-          )}
-
-          {/* STEP 4: SUCCESS CONFIRMATION RECEIPT */}
-          {step === 4 && bookingResult && (
-            <section className="step-content confirmation-view">
-              <div className="success-badge-icon">✓</div>
-              <h2 className="confirmation-title">Reservation Confirmed!</h2>
-              <p className="confirmation-subtext">
-                A confirmation email has been dispatched to <strong>{formData.email}</strong>.
-              </p>
-
-              <div className="cancellation-code-card">
-                <span className="code-label">Cancellation / Reference Code</span>
-                <span className="code-val">{bookingResult.cancellation_code}</span>
-              </div>
-
-              <div className="summary-list">
-                <div className="summary-item">
-                  <span>Customer:</span>
-                  <strong>{formData.full_name}</strong>
-                </div>
-                <div className="summary-item">
-                  <span>Service:</span>
-                  <strong>{selectedService.name}</strong>
-                </div>
-                <div className="summary-item">
-                  <span>Time Slot:</span>
-                  <strong>{selectedSlot.timeDisplay} (New York Time)</strong>
-                </div>
-                <div className="summary-item">
-                  <span>Salon Location:</span>
-                  <strong>310 East 44th St, Manhattan, NY 10017</strong>
-                </div>
-              </div>
-
-              <div className="policies-card confirmation-policies">
-                <h4 className="policies-title-sm">Important Reminders</h4>
-                <ul className="policies-list-sm">
-                  <li><strong>Payment:</strong> Pay at salon via Cash or Card (No American Express).</li>
-                  <li><strong>Redo Policy:</strong> We fix/redo unsatisfactory work; no monetary refunds.</li>
-                  <li><strong>Cancellation:</strong> Notify us at least 24h prior to avoid a 50% charge.</li>
-                </ul>
-              </div>
-
-              <button
-                className="btn-primary"
-                onClick={() => {
-                  setStep(1);
-                  setSelectedService(null);
-                  setSelectedSlot(null);
-                  setFormData({ full_name: '', email: '', phone: '', notes: '' });
-                  setPolicyAgreed(false);
-                  setBookingResult(null);
-                }}
-              >
-                Book Another Appointment
-              </button>
-            </section>
-          )}
-        </>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
