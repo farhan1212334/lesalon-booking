@@ -23,7 +23,7 @@ const DEFAULT_SERVICES = [
 ];
 
 export default function App() {
-  const [viewMode, setViewMode] = useState('booking'); // 'booking' | 'cancel'
+  const [viewMode, setViewMode] = useState('booking'); // 'booking' | 'cancel' | 'admin'
   const [step, setStep] = useState(1);
   const [services, setServices] = useState(DEFAULT_SERVICES);
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -49,6 +49,17 @@ export default function App() {
   const [cancelling, setCancelling] = useState(false);
   const [cancelResult, setCancelResult] = useState(null);
   const [cancelServerError, setCancelServerError] = useState('');
+
+  // Admin Dashboard State
+  const [adminPin, setAdminPin] = useState('');
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [adminAuthError, setAdminAuthError] = useState('');
+  const [adminAppointments, setAdminAppointments] = useState([]);
+  const [adminPendingFees, setAdminPendingFees] = useState([]);
+  const [adminTab, setAdminTab] = useState('appointments'); // 'appointments' | 'fees'
+  const [adminSearch, setAdminSearch] = useState('');
+  const [adminStatusFilter, setAdminStatusFilter] = useState('All');
+  const [adminLoading, setAdminLoading] = useState(false);
 
   // Fetch backend services with fallback
   useEffect(() => {
@@ -243,10 +254,105 @@ export default function App() {
     }
   };
 
+  // -------------------------------------------------------------------------
+  // Admin Methods
+  // -------------------------------------------------------------------------
+  const handleAdminLogin = async (e) => {
+    e.preventDefault();
+    setAdminAuthError('');
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/verify-pin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: adminPin.trim() }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setIsAdminAuthenticated(true);
+        fetchAdminData();
+      } else {
+        setAdminAuthError(data.message || 'Incorrect PIN Passcode');
+      }
+    } catch (err) {
+      setAdminAuthError('Failed to verify PIN. Please try again.');
+    }
+  };
+
+  const fetchAdminData = async () => {
+    setAdminLoading(true);
+    try {
+      const [apptRes, feesRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/admin/appointments`),
+        fetch(`${API_BASE_URL}/admin/pending-fees`),
+      ]);
+      const apptData = await apptRes.json();
+      const feesData = await feesRes.json();
+
+      if (Array.isArray(apptData)) setAdminAppointments(apptData);
+      if (Array.isArray(feesData)) setAdminPendingFees(feesData);
+    } catch (err) {
+      console.error('Error fetching admin data:', err);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleUpdateApptStatus = async (id, newStatus) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/appointments/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAdminAppointments((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, status: newStatus } : item))
+        );
+      }
+    } catch (err) {
+      alert('Could not update status');
+    }
+  };
+
+  const handleUpdateFeeStatus = async (id, newStatus) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/pending-fees/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAdminPendingFees((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, status: newStatus } : item))
+        );
+      }
+    } catch (err) {
+      alert('Could not update fee status');
+    }
+  };
+
   const categories = ['All', ...new Set(services.map((s) => s.category).filter(Boolean))];
   const filteredServices = selectedCategory === 'All'
     ? services
     : services.filter((s) => s.category === selectedCategory);
+
+  // Admin Filtering
+  const filteredAppointments = adminAppointments.filter((item) => {
+    const searchLower = adminSearch.toLowerCase();
+    const matchesSearch =
+      !adminSearch ||
+      (item.full_name && item.full_name.toLowerCase().includes(searchLower)) ||
+      (item.email && item.email.toLowerCase().includes(searchLower)) ||
+      (item.phone && item.phone.includes(searchLower)) ||
+      (item.cancellation_code && item.cancellation_code.toLowerCase().includes(searchLower));
+
+    const matchesStatus = adminStatusFilter === 'All' || item.status === adminStatusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   return (
     <div className="salon-app">
@@ -276,11 +382,249 @@ export default function App() {
           >
             Manage / Cancel Reservation
           </button>
+          <button
+            className={`nav-tab-btn admin-btn ${viewMode === 'admin' ? 'active' : ''}`}
+            onClick={() => {
+              setViewMode('admin');
+              if (isAdminAuthenticated) fetchAdminData();
+            }}
+          >
+            Admin Panel
+          </button>
         </div>
       </header>
 
-      {/* CANCELLATION WORKFLOW VIEW */}
-      {viewMode === 'cancel' ? (
+      {/* ADMIN PANEL VIEW */}
+      {viewMode === 'admin' ? (
+        <section className="step-content">
+          {!isAdminAuthenticated ? (
+            <div className="admin-login-card">
+              <div className="admin-lock-icon">🔒</div>
+              <h2>Salon Staff Access</h2>
+              <p>Enter the 6-digit admin passcode to view reservations and customer files.</p>
+
+              <form onSubmit={handleAdminLogin} className="client-form-card" style={{ padding: 0 }}>
+                {adminAuthError && <div className="error-banner">{adminAuthError}</div>}
+                <div className="form-field">
+                  <label className="field-label">Admin Passcode PIN</label>
+                  <input
+                    type="password"
+                    className="form-input text-center-input"
+                    placeholder="Enter PIN (Default: 212949)"
+                    value={adminPin}
+                    onChange={(e) => setAdminPin(e.target.value)}
+                  />
+                </div>
+                <button type="submit" className="btn-primary full-width">
+                  Unlock Dashboard
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div className="admin-dashboard">
+              <div className="admin-header-row">
+                <div>
+                  <h2>Salon Management Dashboard</h2>
+                  <p className="admin-subtitle">Live bookings & late fee records synced with PostgreSQL.</p>
+                </div>
+                <button className="btn-secondary-sm" onClick={() => fetchAdminData()}>
+                  🔄 Refresh Data
+                </button>
+              </div>
+
+              {/* Sub-Nav Tabs */}
+              <div className="admin-subtabs">
+                <button
+                  className={`subtab-btn ${adminTab === 'appointments' ? 'active' : ''}`}
+                  onClick={() => setAdminTab('appointments')}
+                >
+                  Master Bookings ({adminAppointments.length})
+                </button>
+                <button
+                  className={`subtab-btn ${adminTab === 'fees' ? 'active' : ''}`}
+                  onClick={() => setAdminTab('fees')}
+                >
+                  Flagged Late Fees ({adminPendingFees.filter((f) => f.status === 'unpaid').length} Unpaid)
+                </button>
+              </div>
+
+              {adminLoading ? (
+                <div className="loading-spinner">Loading database records...</div>
+              ) : adminTab === 'appointments' ? (
+                <>
+                  {/* Controls Bar */}
+                  <div className="admin-controls-bar">
+                    <input
+                      type="text"
+                      className="admin-search-input"
+                      placeholder="Search by name, email, phone, or ref code..."
+                      value={adminSearch}
+                      onChange={(e) => setAdminSearch(e.target.value)}
+                    />
+
+                    <div className="status-filter-group">
+                      <span className="filter-label">Filter:</span>
+                      {['All', 'confirmed', 'completed', 'cancelled'].map((st) => (
+                        <button
+                          key={st}
+                          className={`filter-chip-sm ${adminStatusFilter === st ? 'active' : ''}`}
+                          onClick={() => setAdminStatusFilter(st)}
+                        >
+                          {st}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Appointments Table */}
+                  <div className="table-responsive">
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Date & Time (NY)</th>
+                          <th>Client Details</th>
+                          <th>Reserved Service</th>
+                          <th>Ref Code</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredAppointments.length === 0 ? (
+                          <tr>
+                            <td colSpan="6" className="text-center-cell">No matching reservations found.</td>
+                          </tr>
+                        ) : (
+                          filteredAppointments.map((appt) => (
+                            <tr key={appt.id}>
+                              <td>
+                                <strong style={{ display: 'block' }}>
+                                  {new Date(appt.start_time).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })}
+                                </strong>
+                                <span className="text-muted-sm">
+                                  {new Date(appt.start_time).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </td>
+                              <td>
+                                <strong>{appt.full_name}</strong>
+                                <div className="text-muted-sm">{appt.email}</div>
+                                <div className="text-muted-sm">{appt.phone}</div>
+                              </td>
+                              <td>
+                                <div>{appt.service_name}</div>
+                                <span className="text-muted-sm">{appt.duration_minutes} Mins</span>
+                              </td>
+                              <td>
+                                <code className="code-badge">{appt.cancellation_code}</code>
+                              </td>
+                              <td>
+                                <span className={`badge-status badge-${appt.status}`}>
+                                  {appt.status || 'confirmed'}
+                                </span>
+                              </td>
+                              <td>
+                                <div className="table-actions-group">
+                                  {appt.status !== 'completed' && appt.status !== 'cancelled' && (
+                                    <button
+                                      className="action-btn action-complete"
+                                      title="Mark Completed"
+                                      onClick={() => handleUpdateApptStatus(appt.id, 'completed')}
+                                    >
+                                      ✓ Complete
+                                    </button>
+                                  )}
+                                  {appt.status !== 'cancelled' && (
+                                    <button
+                                      className="action-btn action-cancel"
+                                      title="Cancel Reservation"
+                                      onClick={() => handleUpdateApptStatus(appt.id, 'cancelled')}
+                                    >
+                                      ✕ Cancel
+                                    </button>
+                                  )}
+                                  {appt.status === 'cancelled' && (
+                                    <button
+                                      className="action-btn action-restore"
+                                      onClick={() => handleUpdateApptStatus(appt.id, 'confirmed')}
+                                    >
+                                      Re-activate
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                /* Pending Fees Management Table */
+                <div className="table-responsive">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Flagged Client</th>
+                        <th>Service</th>
+                        <th>50% Fee Due</th>
+                        <th>Reason</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {adminPendingFees.length === 0 ? (
+                        <tr>
+                          <td colSpan="6" className="text-center-cell">No flagged cancellation fees on record.</td>
+                        </tr>
+                      ) : (
+                        adminPendingFees.map((fee) => (
+                          <tr key={fee.id}>
+                            <td>
+                              <strong>{fee.full_name}</strong>
+                              <div className="text-muted-sm">{fee.email}</div>
+                              <div className="text-muted-sm">{fee.phone}</div>
+                            </td>
+                            <td>{fee.service_name}</td>
+                            <td>
+                              <strong className="gold-text">${parseFloat(fee.amount_due).toFixed(2)}</strong>
+                            </td>
+                            <td>{fee.reason || 'Late Cancellation (<24h)'}</td>
+                            <td>
+                              <span className={`badge-status badge-${fee.status}`}>
+                                {fee.status}
+                              </span>
+                            </td>
+                            <td>
+                              {fee.status === 'unpaid' ? (
+                                <button
+                                  className="action-btn action-complete"
+                                  onClick={() => handleUpdateFeeStatus(fee.id, 'paid')}
+                                >
+                                  Mark as Paid
+                                </button>
+                              ) : (
+                                <button
+                                  className="action-btn action-restore"
+                                  onClick={() => handleUpdateFeeStatus(fee.id, 'unpaid')}
+                                >
+                                  Re-open Fee
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      ) : viewMode === 'cancel' ? (
+        /* CANCELLATION WORKFLOW VIEW */
         <section className="step-content">
           {!cancelResult ? (
             <>
@@ -348,7 +692,7 @@ export default function App() {
 
               {cancelResult.isLateCancellation && (
                 <div className="warning-banner">
-                  <strong>Notice on Late Cancellation:</strong> This appointment was cancelled within 24 hours of the scheduled time. Per salon policy, a 50% service charge applies.
+                  <strong>Notice on Late Cancellation:</strong> This appointment was cancelled within 24 hours of the scheduled time. Per salon policy, a 50% service charge (${cancelResult.feeAmount || '37.50'}) has been added to your account balance.
                 </div>
               )}
 
@@ -573,7 +917,7 @@ export default function App() {
               </div>
 
               <form onSubmit={handleFormSubmit} className="client-form-card" noValidate>
-                {serverError && <div className="error-banner">{serverError}</div>}
+                {serverError && <div className="error-banner warning-banner-large">{serverError}</div>}
 
                 <div className="form-field">
                   <label className="field-label">Full Name <span className="required-star">*</span></label>

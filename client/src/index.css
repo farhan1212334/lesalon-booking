@@ -633,6 +633,236 @@ body {
   font-size: 0.9rem;
   cursor: pointer;
 }
+/* ==========================================================================
+   ADMIN DASHBOARD STYLES
+   ========================================================================== */
+
+.admin-btn {
+  border-color: rgba(184, 142, 40, 0.4);
+}
+
+.admin-login-card {
+  max-width: 400px;
+  margin: 40px auto;
+  background: #ffffff;
+  border: 1px solid var(--gold-border);
+  border-radius: var(--radius-card);
+  padding: 32px 24px;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.admin-lock-icon {
+  font-size: 2.5rem;
+  margin-bottom: 12px;
+}
+
+.text-center-input {
+  text-align: center;
+  font-size: 1.2rem;
+  letter-spacing: 4px;
+}
+
+.admin-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.admin-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 16px;
+}
+
+.admin-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.btn-secondary-sm {
+  background: transparent;
+  border: 1px solid #ccc;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.admin-subtabs {
+  display: flex;
+  gap: 10px;
+}
+
+.subtab-btn {
+  background: #f5f5f5;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: #555;
+}
+
+.subtab-btn.active {
+  background: var(--gold-primary);
+  color: #ffffff;
+}
+
+.admin-controls-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.admin-search-input {
+  flex: 1;
+  min-width: 260px;
+  padding: 10px 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.status-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-label {
+  font-size: 0.82rem;
+  color: #777;
+}
+
+.filter-chip-sm {
+  background: #eee;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.filter-chip-sm.active {
+  background: var(--charcoal-dark);
+  color: #ffffff;
+}
+
+.table-responsive {
+  overflow-x: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  text-align: left;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #eee;
+}
+
+.admin-table th {
+  background: #f9f9f9;
+  font-weight: 600;
+  color: #444;
+}
+
+.text-muted-sm {
+  font-size: 0.78rem;
+  color: #777;
+}
+
+.code-badge {
+  background: #f0f0f0;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-weight: bold;
+}
+
+.badge-status {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.badge-confirmed {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.badge-completed {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.badge-cancelled {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.badge-unpaid {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.badge-paid {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.table-actions-group {
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn {
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.action-complete {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.action-cancel {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.action-restore {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.text-center-cell {
+  text-align: center;
+  padding: 24px;
+  color: #888;
+}
+
+.full-width {
+  width: 100%;
+}
 
 /* Confirmation Screen */
 .confirmation-view {

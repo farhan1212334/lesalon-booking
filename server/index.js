@@ -27,6 +27,7 @@ const initDb = async () => {
         service_id INTEGER,
         service_name VARCHAR(255),
         duration_minutes INTEGER DEFAULT 45,
+        starting_price NUMERIC(10, 2) DEFAULT 0,
         start_time TIMESTAMPTZ,
         end_time TIMESTAMPTZ,
         full_name VARCHAR(255),
@@ -37,12 +38,25 @@ const initDb = async () => {
         status VARCHAR(50) DEFAULT 'confirmed',
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS pending_fees (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255),
+        phone VARCHAR(50),
+        full_name VARCHAR(255),
+        amount_due NUMERIC(10, 2),
+        service_name VARCHAR(255),
+        reason VARCHAR(255) DEFAULT 'Late Cancellation Fee (50%)',
+        status VARCHAR(50) DEFAULT 'unpaid',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
     `);
 
     const alterQueries = [
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_id INTEGER;',
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS service_name VARCHAR(255);',
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS duration_minutes INTEGER DEFAULT 45;',
+      'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS starting_price NUMERIC(10, 2) DEFAULT 0;',
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;',
       'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ;',
       'ALTER TABLE appointments ALTER COLUMN end_time DROP NOT NULL;',
@@ -58,7 +72,7 @@ const initDb = async () => {
       await pool.query(q).catch((e) => console.log('DB Schema sync step:', e.message));
     }
 
-    console.log('✅ PostgreSQL DB schema aligned (cancellation & status columns verified).');
+    console.log('✅ PostgreSQL DB schema aligned (Admin APIs ready).');
   } catch (err) {
     console.error('❌ Database schema migration error:', err.message);
   }
@@ -164,7 +178,7 @@ app.get('/api/booked-slots', async (req, res) => {
 });
 
 // --------------------------------------------------------------------------
-// 4. Create New Appointment & Dispatch Confirmation Emails
+// 4. Create New Appointment (With Rebooking Lock Check)
 // --------------------------------------------------------------------------
 app.post('/api/appointments', async (req, res) => {
   const { service_id, start_time, full_name, email, phone, notes } = req.body;
@@ -174,7 +188,28 @@ app.post('/api/appointments', async (req, res) => {
   }
 
   try {
-    let service = { name: 'Salon Service', duration_minutes: 60, price_display: 'Upon Consultation' };
+    // A. Check for pending cancellation fees on email or phone
+    try {
+      const pendingCheck = await pool.query(
+        "SELECT * FROM pending_fees WHERE (LOWER(email) = LOWER($1) OR phone = $2) AND status = 'unpaid'",
+        [email.trim(), phone.trim()]
+      );
+
+      if (pendingCheck.rows.length > 0) {
+        const fee = pendingCheck.rows[0];
+        const feeAmount = parseFloat(fee.amount_due || 37.50).toFixed(2);
+        return res.status(403).json({
+          success: false,
+          isPendingFee: true,
+          message: `You have a pending 50% cancellation balance from a previous appointment ($${feeAmount}). Please contact (212) 949-6693 to settle your balance before booking.`,
+        });
+      }
+    } catch (e) {
+      console.log('Pending fee check step notice:', e.message);
+    }
+
+    // B. Fetch service details
+    let service = { name: 'Salon Service', duration_minutes: 60, starting_price: 75, price_display: 'Upon Consultation' };
     try {
       const serviceRes = await pool.query('SELECT * FROM services WHERE id = $1', [service_id]);
       if (serviceRes.rows.length > 0) {
@@ -185,12 +220,14 @@ app.post('/api/appointments', async (req, res) => {
     }
 
     const durationMins = service.duration_minutes || 45;
+    const startingPrice = service.starting_price || 75;
     const requestedStartObj = new Date(start_time);
     const requestedEndObj = new Date(requestedStartObj.getTime() + durationMins * 60000);
 
     const requestedStartISO = requestedStartObj.toISOString();
     const requestedEndISO = requestedEndObj.toISOString();
 
+    // C. Collision check
     try {
       const conflictCheckQuery = `
         SELECT id, start_time, end_time, duration_minutes 
@@ -223,16 +260,18 @@ app.post('/api/appointments', async (req, res) => {
 
     const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
+    // D. Insert into appointments
     const insertQuery = `
       INSERT INTO appointments 
-      (service_id, service_name, duration_minutes, start_time, end_time, full_name, email, phone, notes, cancellation_code, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'confirmed')
+      (service_id, service_name, duration_minutes, starting_price, start_time, end_time, full_name, email, phone, notes, cancellation_code, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'confirmed')
       RETURNING *
     `;
     const insertValues = [
       service_id,
       service.name || 'Salon Service',
       durationMins,
+      startingPrice,
       requestedStartISO,
       requestedEndISO,
       full_name,
@@ -368,11 +407,29 @@ app.post('/api/cancel-appointment', async (req, res) => {
 
     const cancelledAppt = updateRes.rows[0];
 
-    // Check if cancellation is within 24 hours
+    // Check if cancellation notice is less than 24 hours
     const apptTimeMs = new Date(cancelledAppt.start_time).getTime();
     const nowMs = Date.now();
     const hoursNotice = (apptTimeMs - nowMs) / (1000 * 60 * 60);
     const isLateCancellation = hoursNotice < 24;
+
+    let feeAmount = '0.00';
+    if (isLateCancellation) {
+      const basePrice = parseFloat(cancelledAppt.starting_price || 75);
+      feeAmount = (basePrice > 0 ? basePrice * 0.5 : 37.50).toFixed(2);
+
+      await pool.query(
+        `INSERT INTO pending_fees (email, phone, full_name, amount_due, service_name, status)
+         VALUES ($1, $2, $3, $4, $5, 'unpaid')`,
+        [
+          cancelledAppt.email,
+          cancelledAppt.phone,
+          cancelledAppt.full_name,
+          feeAmount,
+          cancelledAppt.service_name,
+        ]
+      ).catch((e) => console.error('Pending fee insert error:', e.message));
+    }
 
     const formattedDateStr = new Date(cancelledAppt.start_time).toLocaleString('en-US', {
       timeZone: 'America/New_York',
@@ -385,7 +442,6 @@ app.post('/api/cancel-appointment', async (req, res) => {
       hour12: true,
     }) + ' (New York Time)';
 
-    // Send Customer Cancellation Email
     const customerCancelHtml = `
       <div style="font-family: 'Montserrat', Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e6d3a7; border-radius: 12px; padding: 30px; color: #1f1f1f;">
         <div style="text-align: center; border-bottom: 1px solid #e6e1da; padding-bottom: 20px; margin-bottom: 25px;">
@@ -404,7 +460,7 @@ app.post('/api/cancel-appointment', async (req, res) => {
 
         ${isLateCancellation ? `
           <div style="background-color: #fff3f3; border: 1px solid #ffcdd2; padding: 15px; border-radius: 8px; margin: 20px 0; font-size: 13px; color: #c62828;">
-            <strong>Notice on 24-Hour Policy:</strong> This cancellation was submitted within 24 hours of your scheduled time. Per salon policy, a 50% service charge applies.
+            <strong>Notice on 24-Hour Policy:</strong> This cancellation was submitted within 24 hours of your scheduled time. Per salon policy, a 50% service charge ($${feeAmount}) has been added to your account balance. Please contact us at (212) 949-6693 prior to your next booking.
           </div>
         ` : ''}
 
@@ -414,7 +470,6 @@ app.post('/api/cancel-appointment', async (req, res) => {
       </div>
     `;
 
-    // Send Admin Cancellation Email Notification
     const adminEmail = process.env.SALON_NOTIFICATION_EMAIL || 'umarfarhan442@gmail.com';
     const adminCancelHtml = `
       <div style="font-family: Arial, sans-serif; padding: 25px; border: 1px solid #c62828; border-radius: 8px; max-width: 600px;">
@@ -426,7 +481,7 @@ app.post('/api/cancel-appointment', async (req, res) => {
           <li><strong>Service:</strong> ${cancelledAppt.service_name}</li>
           <li><strong>Scheduled Time:</strong> ${formattedDateStr}</li>
           <li><strong>Reference Code:</strong> ${cancelledAppt.cancellation_code}</li>
-          <li><strong>Notice Period:</strong> ${isLateCancellation ? 'LESS than 24 Hours (50% fee applies)' : 'More than 24 Hours (Standard cancellation)'}</li>
+          <li><strong>Notice Period:</strong> ${isLateCancellation ? `LESS than 24 Hours (50% fee $${feeAmount} flagged on account)` : 'More than 24 Hours (Standard cancellation)'}</li>
         </ul>
       </div>
     `;
@@ -447,11 +502,82 @@ app.post('/api/cancel-appointment', async (req, res) => {
       success: true,
       message: 'Reservation cancelled successfully.',
       isLateCancellation,
+      feeAmount,
       appointment: cancelledAppt,
     });
   } catch (err) {
     console.error('Error cancelling appointment:', err);
     res.status(500).json({ success: false, message: 'Server error processing cancellation.' });
+  }
+});
+
+// --------------------------------------------------------------------------
+// 6. Admin Endpoints (Protected via PIN)
+// --------------------------------------------------------------------------
+
+// A. Verify Admin PIN Passcode
+app.post('/api/admin/verify-pin', (req, res) => {
+  const { pin } = req.body;
+  const validPin = process.env.ADMIN_PIN || '212949';
+  if (pin === validPin) {
+    return res.json({ success: true, message: 'Admin access granted.' });
+  }
+  return res.status(401).json({ success: false, message: 'Invalid Passcode PIN.' });
+});
+
+// B. Fetch All Appointments
+app.get('/api/admin/appointments', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM appointments ORDER BY start_time DESC');
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching admin appointments:', err);
+    res.status(500).json({ error: 'Failed to retrieve appointments list' });
+  }
+});
+
+// C. Update Appointment Status (e.g. 'completed', 'cancelled', 'confirmed')
+app.patch('/api/admin/appointments/:id', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  try {
+    const { rows } = await pool.query(
+      'UPDATE appointments SET status = $1 WHERE id = $2 RETURNING *',
+      [status, id]
+    );
+    res.json({ success: true, appointment: rows[0] });
+  } catch (err) {
+    console.error('Error updating appointment status:', err);
+    res.status(500).json({ success: false, message: 'Failed to update status' });
+  }
+});
+
+// D. Fetch Pending Late Cancellation Fees
+app.get('/api/admin/pending-fees', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM pending_fees ORDER BY created_at DESC');
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching pending fees:', err);
+    res.status(500).json({ error: 'Failed to retrieve pending fees list' });
+  }
+});
+
+// E. Resolve Pending Fee (Mark as Paid or Waived)
+app.patch('/api/admin/pending-fees/:id', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body; // 'paid' or 'unpaid'
+
+  try {
+    const { rows } = await pool.query(
+      'UPDATE pending_fees SET status = $1 WHERE id = $2 RETURNING *',
+      [status, id]
+    );
+    res.json({ success: true, fee: rows[0] });
+  } catch (err) {
+    console.error('Error updating pending fee:', err);
+    res.status(500).json({ success: false, message: 'Failed to update fee record' });
   }
 });
 
