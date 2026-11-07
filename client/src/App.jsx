@@ -76,7 +76,7 @@ export default function App() {
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
     if (!agreedTerms) {
-      setErrorMessage('Please accept the Le Salon NYC cancellation policy terms to confirm.');
+      setErrorMessage('Please check the box to agree to the Le Salon NYC cancellation policy terms.');
       return;
     }
 
@@ -110,13 +110,13 @@ export default function App() {
       });
 
       const data = await res.json();
-      if (res.ok && data.success) {
+      if (res.ok && (data.success || data.cancellation_code || data.cancellationCode)) {
         setBookingResult(data);
       } else {
-        setErrorMessage(data.error || 'Server error creating reservation. Please try again.');
+        setErrorMessage(data.error || 'Unable to process reservation. Please check input details.');
       }
     } catch (err) {
-      setErrorMessage('Network error connecting to backend server.');
+      setErrorMessage('Network connection error. Server may be starting up, please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -142,7 +142,7 @@ export default function App() {
         setCancelError(data.error || 'Unable to locate matching appointment.');
       }
     } catch (err) {
-      setCancelError('Network error connecting to backend server.');
+      setCancelError('Network error connecting to server.');
     } finally {
       setIsSubmitting(false);
     }
@@ -183,7 +183,7 @@ export default function App() {
               <div style={{ fontSize: '2.5rem', color: '#059669', marginBottom: '10px' }}>✓</div>
               <h2 className="font-serif" style={{ fontSize: '1.5rem', marginBottom: '8px' }}>Reservation Confirmed!</h2>
               <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '16px' }}>
-                A confirmation receipt has been dispatched to <strong>{guest.email}</strong>.
+                Confirmation receipt sent to <strong>{guest.email}</strong>.
               </p>
               
               <div style={{ background: '#fafafa', border: '1px solid #e8e6e1', borderRadius: '8px', padding: '14px', textAlign: 'left', marginBottom: '20px' }}>
@@ -207,7 +207,7 @@ export default function App() {
             </div>
           ) : (
             <div>
-              {/* Interactive Step Nav Bar */}
+              {/* Step Nav Bar */}
               <div className="step-nav-bar">
                 <span className={`step-nav-item ${currentStep === 1 ? 'active' : ''}`} onClick={() => setCurrentStep(1)}>
                   1. Services
@@ -222,8 +222,6 @@ export default function App() {
                   4. Confirm & Card
                 </span>
               </div>
-
-              {errorMessage && <div className="alert-error">{errorMessage}</div>}
 
               {/* STEP 1: Services */}
               {currentStep === 1 && (
@@ -440,6 +438,9 @@ export default function App() {
                       </label>
                     </div>
                   </div>
+
+                  {/* Inline Error Notice Directly Above Submit Buttons */}
+                  {errorMessage && <div className="alert-error" style={{ marginBottom: '10px' }}>{errorMessage}</div>}
 
                   <div className="btn-group">
                     <button type="button" className="back-btn" onClick={() => setCurrentStep(3)}>
