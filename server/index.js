@@ -535,6 +535,16 @@ app.get('/api/admin/appointments', async (req, res) => {
     res.status(500).json({ error: 'Failed to retrieve appointments list' });
   }
 });
+// Admin Endpoint: Wipe All Appointments & Pending Fees
+app.delete('/api/admin/clear-all', async (req, res) => {
+  try {
+    await pool.query('TRUNCATE TABLE appointments, pending_fees RESTART IDENTITY CASCADE;');
+    res.json({ success: true, message: 'All database records cleared successfully.' });
+  } catch (err) {
+    console.error('Error clearing database:', err);
+    res.status(500).json({ success: false, message: 'Failed to clear database records.' });
+  }
+});
 
 // C. Update Appointment Status (e.g. 'completed', 'cancelled', 'confirmed')
 app.patch('/api/admin/appointments/:id', async (req, res) => {

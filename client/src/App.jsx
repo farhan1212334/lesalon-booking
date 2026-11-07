@@ -60,6 +60,21 @@ export default function App() {
   const [adminSearch, setAdminSearch] = useState('');
   const [adminStatusFilter, setAdminStatusFilter] = useState('All');
   const [adminLoading, setAdminLoading] = useState(false);
+  const handleClearAllData = async () => {
+  if (window.confirm('Are you sure you want to delete ALL test appointments and fees? This cannot be undone.')) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/clear-all`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setAdminAppointments([]);
+        setAdminPendingFees([]);
+        alert('All test records cleared!');
+      }
+    } catch (err) {
+      alert('Error clearing records');
+    }
+  }
+};
 
   // Fetch backend services with fallback
   useEffect(() => {
