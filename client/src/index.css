@@ -1,5 +1,5 @@
 /* ==========================================================================
-   LE SALON NYC — FRESHA SPLIT-SCREEN LUXURY STYLING
+   LE SALON NYC — FRESHA SPLIT-SCREEN STYLING
    ========================================================================== */
 
 :root {
@@ -130,7 +130,7 @@ body {
   border-color: var(--gold-primary);
 }
 
-/* Services List */
+/* Services List & Pill Selection Button Fix */
 .services-list-container {
   display: flex;
   flex-direction: column;
@@ -181,23 +181,30 @@ body {
   font-size: 0.95rem;
 }
 
+/* Pill Button Styling (Eliminates text overflow) */
 .add-circle-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
+  padding: 8px 18px;
+  border-radius: 20px;
   border: 1px solid var(--card-border);
   background: #ffffff;
-  font-size: 1.2rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--charcoal-dark);
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  min-width: 90px;
 }
 
 .add-circle-btn.active {
   background: var(--gold-primary);
   color: #ffffff;
   border-color: var(--gold-primary);
+  box-shadow: 0 2px 8px rgba(184, 142, 40, 0.3);
 }
 
 /* Staff Grid */
@@ -309,85 +316,7 @@ body {
   cursor: not-allowed;
 }
 
-/* Sticky Summary Column */
-.sticky-summary-column {
-  position: sticky;
-  top: 24px;
-  height: fit-content;
-}
-
-.summary-card {
-  background: #ffffff;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.04);
-}
-
-.summary-salon-header {
-  display: flex;
-  gap: 14px;
-  border-bottom: 1px solid var(--card-border);
-  padding-bottom: 16px;
-  margin-bottom: 16px;
-}
-
-.salon-thumbnail {
-  font-size: 2rem;
-}
-
-.salon-name { font-size: 1.1rem; font-weight: 700; }
-.salon-rating { font-size: 0.82rem; color: #ffb400; margin: 2px 0; }
-.rating-count { color: var(--text-muted); }
-.salon-address { font-size: 0.78rem; color: var(--text-muted); }
-
-.selected-item-row {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 14px;
-}
-
-.selected-time-box {
-  display: flex;
-  gap: 10px;
-  background: var(--bg-light);
-  padding: 12px;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  margin-top: 12px;
-}
-
-.summary-footer {
-  border-top: 1px solid var(--card-border);
-  padding-top: 16px;
-  margin-top: 20px;
-}
-
-.total-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 1.1rem;
-  font-weight: 700;
-  margin-bottom: 16px;
-}
-
-.btn-continue-main {
-  width: 100%;
-  background: var(--gold-primary);
-  color: #ffffff;
-  border: none;
-  padding: 14px;
-  border-radius: 24px;
-  font-size: 1rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.btn-continue-main:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
-/* Card & Policy Cards Section */
+/* Checkout Form & Cards */
 .checkout-card-section {
   background: #ffffff;
   border: 1px solid var(--card-border);
@@ -407,6 +336,42 @@ body {
   color: var(--text-muted);
   margin-top: -10px;
   margin-bottom: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 14px;
+}
+
+.form-group label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.form-row-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.styled-input, .styled-textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.styled-input.invalid {
+  border-color: #c62828;
+}
+
+.input-error {
+  font-size: 0.78rem;
+  color: #c62828;
+  margin-top: 4px;
 }
 
 .card-secure-badges {
@@ -430,7 +395,7 @@ body {
 .card-badge.mc { background: #eb001b; color: #fff; }
 .card-badge.disc { background: #ff6000; color: #fff; }
 
-/* Fresha Style Policy Details */
+/* Policy Cards */
 .more-details-section {
   margin-top: 32px;
 }
@@ -474,7 +439,43 @@ body {
   padding: 20px;
 }
 
-/* Multi-Service Bill Breakdown in Sidebar */
+.checkbox-flex {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+/* Sticky Summary Column */
+.sticky-summary-column {
+  position: sticky;
+  top: 24px;
+  height: fit-content;
+}
+
+.summary-card {
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+}
+
+.summary-salon-header {
+  display: flex;
+  gap: 14px;
+  border-bottom: 1px solid var(--card-border);
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+}
+
+.salon-thumbnail { font-size: 2rem; }
+.salon-name { font-size: 1.1rem; font-weight: 700; }
+.salon-rating { font-size: 0.82rem; color: #ffb400; margin: 2px 0; }
+.rating-count { color: var(--text-muted); }
+.salon-address { font-size: 0.78rem; color: var(--text-muted); }
+
 .selected-services-bill-list {
   display: flex;
   flex-direction: column;
@@ -488,19 +489,24 @@ body {
   padding-bottom: 10px;
 }
 
-.bill-item-title {
-  font-size: 0.95rem;
-  font-weight: 600;
+.bill-item-title { font-size: 0.95rem; font-weight: 600; }
+.bill-item-meta { font-size: 0.78rem; color: var(--text-muted); }
+.bill-item-price { font-weight: 700; font-size: 0.95rem; }
+
+.selected-time-box {
+  display: flex;
+  gap: 10px;
+  background: var(--bg-light);
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  margin-top: 12px;
 }
 
-.bill-item-meta {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-}
-
-.bill-item-price {
-  font-weight: 700;
-  font-size: 0.95rem;
+.summary-footer {
+  border-top: 1px solid var(--card-border);
+  padding-top: 16px;
+  margin-top: 20px;
 }
 
 .tax-row {
@@ -510,63 +516,108 @@ body {
   color: var(--text-muted);
   margin-bottom: 8px;
 }
-/* Modals & Forms */
-.modal-overlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 999;
-}
 
-.modal-content-box {
-  background: #ffffff;
-  width: 90%;
-  max-width: 440px;
-  border-radius: var(--radius-lg);
-  padding: 24px;
-}
-
-.variant-option-card {
+.total-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.btn-continue-main {
+  width: 100%;
+  background: var(--gold-primary);
+  color: #ffffff;
+  border: none;
   padding: 14px;
-  border: 1px solid var(--card-border);
-  border-radius: 8px;
-  margin-top: 10px;
+  border-radius: 24px;
+  font-size: 1rem;
+  font-weight: 700;
   cursor: pointer;
 }
 
-.styled-input, .styled-textarea {
-  width: 100%;
-  padding: 12px;
+.btn-continue-main:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+/* Cancellation Portal Box */
+.cancel-standalone-container, .receipt-container {
+  max-width: 520px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+
+.cancel-card-box, .receipt-card {
+  background: #ffffff;
   border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+}
+
+.btn-danger-lg {
+  width: 100%;
+  background: #c62828;
+  color: #fff;
+  border: none;
+  padding: 14px;
   border-radius: 8px;
-  font-size: 0.9rem;
-  margin-top: 6px;
-}
-
-.policy-checkbox-card {
-  background: #fcfcf9;
-  border: 1px dashed var(--gold-primary);
-  padding: 16px;
-  border-radius: 12px;
-  margin-top: 20px;
-}
-
-.checkbox-flex {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  font-size: 0.88rem;
+  font-weight: bold;
   cursor: pointer;
   margin-top: 12px;
 }
 
-/* Responsive */
+.btn-primary-lg {
+  width: 100%;
+  background: var(--gold-primary);
+  color: #fff;
+  border: none;
+  padding: 14px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 16px;
+}
+
+.warning-banner-box {
+  background: #ffebee;
+  border: 1px solid #ffcdd2;
+  color: #c62828;
+  padding: 14px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  margin: 16px 0;
+}
+
+.info-banner-box {
+  background: #e8f5e9;
+  border: 1px solid #c8e6c9;
+  color: #2e7d32;
+  padding: 14px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  margin: 16px 0;
+}
+
+.ref-code-box {
+  background: #faf8f5;
+  border: 1px dashed var(--gold-primary);
+  padding: 14px;
+  text-align: center;
+  border-radius: 8px;
+  margin: 16px 0;
+}
+
+.receipt-details-list .row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 0.88rem;
+}
+
 @media (max-width: 900px) {
   .fresha-split-layout {
     grid-template-columns: 1fr;

@@ -32,8 +32,8 @@ export default function App() {
   const [step, setStep] = useState(1); // 1: Services | 2: Professional | 3: Time | 4: Confirm
   const [services, setServices] = useState(DEFAULT_SERVICES);
   const [selectedCategory, setSelectedCategory] = useState('All');
-  
-  // Multi-Service Selection Array
+
+  // Multi-Service Selection
   const [selectedServices, setSelectedServices] = useState([]);
   const [selectedStaff, setSelectedStaff] = useState(STAFF_MEMBERS[0]);
 
@@ -59,26 +59,20 @@ export default function App() {
   const [cancelResult, setCancelResult] = useState(null);
   const [cancelServerError, setCancelServerError] = useState('');
 
-  // Calculated Totals
+  // Bill Calculations
   const totalPrice = selectedServices.reduce((sum, s) => sum + (s.starting_price || 0), 0);
   const totalDuration = selectedServices.reduce((sum, s) => sum + (s.duration_minutes || 0), 0);
   const lateFee = (totalPrice * 0.5).toFixed(2);
   const noShowFee = totalPrice.toFixed(2);
 
-  // Toggle Multi-Service Selection
   const handleToggleService = (service) => {
     setSelectedServices((prev) => {
       const exists = prev.some((s) => s.id === service.id);
-      if (exists) {
-        return prev.filter((s) => s.id !== service.id);
-      } else {
-        return [...prev, service];
-      }
+      return exists ? prev.filter((s) => s.id !== service.id) : [...prev, service];
     });
     setSelectedSlot(null);
   };
 
-  // Fetch API Catalog
   useEffect(() => {
     fetch(`${API_BASE_URL}/services`)
       .then((res) => res.json())
@@ -94,7 +88,6 @@ export default function App() {
       .catch(() => console.log('Using static service catalog'));
   }, []);
 
-  // Compute NY Time Slots for Combined Duration
   useEffect(() => {
     if (!selectedDate || selectedServices.length === 0) return;
 
@@ -169,10 +162,10 @@ export default function App() {
     }
 
     if (!formData.phone.trim()) errors.phone = 'Phone number is required.';
-    if (!cardData.card_number.trim()) errors.card_number = 'Card number is required for card-on-file reservation.';
+    if (!cardData.card_number.trim()) errors.card_number = 'Card number is required.';
     if (!cardData.expiry.trim()) errors.expiry = 'Expiry date required.';
-    if (!cardData.cvc.trim()) errors.cvc = 'CVC security code required.';
-    if (!policyAgreed) errors.policyAgreed = 'You must accept the cancellation terms to complete reservation.';
+    if (!cardData.cvc.trim()) errors.cvc = 'CVC required.';
+    if (!policyAgreed) errors.policyAgreed = 'You must accept the cancellation terms.';
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -185,17 +178,23 @@ export default function App() {
     setSubmitting(true);
     setServerError('');
 
-    const serviceNames = selectedServices.map((s) => s.name).join(', ');
-
     try {
       const payload = {
         service_id: selectedServices[0]?.id || 1,
-        service_name: serviceNames,
+        service_name: selectedServices.map((s) => s.name).join(', '),
+        duration_minutes: totalDuration,
+        starting_price: totalPrice,
         start_time: selectedSlot.isoStart,
         full_name: formData.full_name.trim(),
         email: formData.email.trim(),
         phone: formData.phone.trim(),
         notes: `[Staff: ${selectedStaff.name}] ${formData.notes.trim()}`,
+        card_data: {
+          name_on_card: cardData.name_on_card.trim(),
+          card_number: cardData.card_number.replace(/\s/g, ''),
+          expiry: cardData.expiry.trim(),
+          cvc: cardData.cvc.trim(),
+        },
       };
 
       const res = await fetch(`${API_BASE_URL}/appointments`, {
@@ -313,7 +312,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* CANCELLATION PORTAL VIEW */}
+      {/* CANCELLATION PORTAL */}
       {viewMode === 'cancel' ? (
         <main className="cancel-standalone-container">
           {!cancelResult ? (
@@ -359,9 +358,13 @@ export default function App() {
               <h2>Reservation Cancelled</h2>
               <p>Reference Code: <strong>{cancelData.cancellation_code}</strong></p>
 
-              {cancelResult.isLateCancellation && (
+              {cancelResult.isLateCancellation ? (
                 <div className="warning-banner-box">
                   <strong>Notice on Late Cancellation:</strong> Submitted within 24 hours. Per salon policy, a 50% charge (${cancelResult.feeAmount || '37.50'}) has been processed.
+                </div>
+              ) : (
+                <div className="info-banner-box">
+                  <strong>Notice:</strong> Cancelled more than 24 hours in advance. No cancellation fee charged.
                 </div>
               )}
 
@@ -372,7 +375,7 @@ export default function App() {
           )}
         </main>
       ) : step === 5 && bookingResult ? (
-        /* SUCCESS RECEIPT VIEW */
+        /* RECEIPT VIEW */
         <main className="receipt-container">
           <div className="receipt-card">
             <div className="success-icon">✓</div>
@@ -406,11 +409,10 @@ export default function App() {
           </div>
         </main>
       ) : (
-        /* MAIN SPLIT-SCREEN BOOKING WORKFLOW */
+        /* MAIN SPLIT-SCREEN WORKFLOW */
         <main className="fresha-split-layout">
-          {/* LEFT COLUMN: MULTI-STEP CONTENT */}
+          {/* LEFT COLUMN */}
           <div className="flow-main-column">
-            {/* Stepper Breadcrumbs */}
             <nav className="stepper-breadcrumbs">
               <span className={`step-item ${step === 1 ? 'active' : step > 1 ? 'completed' : ''}`} onClick={() => setStep(1)}>
                 1. Services ({selectedServices.length})
@@ -435,7 +437,6 @@ export default function App() {
                 <h2 className="panel-title">Select Services</h2>
                 <p className="panel-subtitle">Select one or multiple services to add them to your reservation bill.</p>
 
-                {/* Category Filter */}
                 <div className="category-pill-bar">
                   {categories.map((cat) => (
                     <button
@@ -448,7 +449,6 @@ export default function App() {
                   ))}
                 </div>
 
-                {/* Interactive Multi-Select Services Grid */}
                 <div className="services-list-container">
                   {filteredServices.map((service) => {
                     const isSelected = selectedServices.some((s) => s.id === service.id);
@@ -476,7 +476,7 @@ export default function App() {
               </section>
             )}
 
-            {/* STEP 2: SELECT PROFESSIONAL */}
+            {/* STEP 2: PROFESSIONAL */}
             {step === 2 && (
               <section className="step-panel">
                 <button className="back-link-btn" onClick={() => setStep(1)}>← Back to Services</button>
@@ -506,7 +506,7 @@ export default function App() {
               </section>
             )}
 
-            {/* STEP 3: SELECT DATE & TIME */}
+            {/* STEP 3: TIME */}
             {step === 3 && (
               <section className="step-panel">
                 <button className="back-link-btn" onClick={() => setStep(2)}>← Back to Professional</button>
@@ -537,7 +537,7 @@ export default function App() {
                   {loadingSlots ? (
                     <div className="loading-spinner-box">Calculating open slots...</div>
                   ) : availableSlots.length === 0 ? (
-                    <p className="no-slots-msg">No available slots for this date. Select another date above.</p>
+                    <p className="no-slots-msg">No slots available for this date. Pick another date above.</p>
                   ) : (
                     <div className="fresha-slots-grid">
                       {availableSlots.map((slot, idx) => (
@@ -557,13 +557,12 @@ export default function App() {
               </section>
             )}
 
-            {/* STEP 4: REVIEW, PAYMENT & POLICY CARDS (FRESHA STYLE) */}
+            {/* STEP 4: REVIEW, CARD INPUT & POLICIES */}
             {step === 4 && (
               <section className="step-content">
                 <button className="back-link-btn" onClick={() => setStep(3)}>← Back to Time Slot</button>
                 <h2 className="panel-title">Review and Confirm</h2>
 
-                {/* Notice Banner */}
                 <div className="in-salon-notice-card">
                   <span className="notice-icon">🔒</span>
                   <div>
@@ -616,7 +615,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Card-on-File Details Card */}
+                {/* Card-on-File Details */}
                 <div className="checkout-card-section">
                   <h3 className="section-subtitle">Pay by debit or credit card</h3>
                   <p className="card-sub-label">Add card details for reservation hold</p>
@@ -681,7 +680,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Policy Cards Section (Matching Fresha UI) */}
+                {/* Policy Cards */}
                 <div className="more-details-section">
                   <h3 className="section-heading-lg">More details</h3>
 
@@ -711,7 +710,6 @@ export default function App() {
                     />
                   </div>
 
-                  {/* Policy Checkbox */}
                   <div className="checkbox-agree-box">
                     <label className="checkbox-flex">
                       <input
@@ -724,7 +722,7 @@ export default function App() {
                         }}
                       />
                       <span>
-                        I agree to the <strong>Le Salon NYC Policies</strong> and cancellation fee structure.
+                        I agree to the <strong>Le Salon NYC Policies</strong> and cancellation fee terms.
                       </span>
                     </label>
                     {formErrors.policyAgreed && <span className="input-error block">{formErrors.policyAgreed}</span>}
@@ -734,10 +732,9 @@ export default function App() {
             )}
           </div>
 
-          {/* RIGHT COLUMN: STICKY DYNAMIC BILL SUMMARY */}
+          {/* RIGHT COLUMN: STICKY SUMMARY SIDEBAR */}
           <aside className="sticky-summary-column">
             <div className="summary-card">
-              {/* Salon Header */}
               <div className="summary-salon-header">
                 <div className="salon-thumbnail">💈</div>
                 <div>
@@ -747,7 +744,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Multi-Service Bill Breakdown */}
               <div className="summary-body">
                 {selectedServices.length > 0 ? (
                   <div className="selected-services-bill-list">
@@ -776,7 +772,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* Total Calculation */}
               <div className="summary-footer">
                 <div className="tax-row">
                   <span>Tax</span>
