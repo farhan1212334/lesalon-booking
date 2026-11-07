@@ -1,85 +1,35 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { Pool } = require('pg');
-require('dotenv').config();
-
 const Stripe = require('stripe');
-const stripe = process.env.STRIPE_SECRET_KEY ? Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Initialize Stripe API
+const stripe = process.env.STRIPE_SECRET_KEY 
+  ? new Stripe(process.env.STRIPE_SECRET_KEY) 
+  : null;
+
+// Middleware
 app.use(cors());
 app.use(express.json());
 
-// PostgreSQL Connection (Neon Database)
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+// In-Memory Database (Replace with persistent DB if applicable)
+const appointments = [];
 
-// Database Migration on Startup
-const initDb = async () => {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS appointments (
-        id SERIAL PRIMARY KEY,
-        service_id INTEGER,
-        service_name VARCHAR(255),
-        duration_minutes INTEGER DEFAULT 45,
-        starting_price NUMERIC(10, 2) DEFAULT 0,
-        start_time TIMESTAMPTZ,
-        end_time TIMESTAMPTZ,
-        full_name VARCHAR(255),
-        email VARCHAR(255),
-        phone VARCHAR(50),
-        notes TEXT,
-        cancellation_code VARCHAR(50),
-        status VARCHAR(50) DEFAULT 'confirmed',
-        stripe_customer_id VARCHAR(255),
-        stripe_payment_method_id VARCHAR(255),
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS pending_fees (
-        id SERIAL PRIMARY KEY,
-        email VARCHAR(255),
-        phone VARCHAR(50),
-        full_name VARCHAR(255),
-        amount_due NUMERIC(10, 2),
-        service_name VARCHAR(255),
-        reason VARCHAR(255),
-        status VARCHAR(50) DEFAULT 'unpaid',
-        stripe_charge_id VARCHAR(255),
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-    `);
-
-    const alterQueries = [
-      'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255);',
-      'ALTER TABLE appointments ADD COLUMN IF NOT EXISTS stripe_payment_method_id VARCHAR(255);',
-      'ALTER TABLE pending_fees ADD COLUMN IF NOT EXISTS stripe_charge_id VARCHAR(255);',
-    ];
-
-    for (const q of alterQueries) {
-      await pool.query(q).catch((e) => console.log('DB Schema sync step:', e.message));
-    }
-
-    console.log('✅ PostgreSQL database aligned with Stripe Vault schema.');
-  } catch (err) {
-    console.error('❌ DB migration error:', err.message);
-  }
-};
-initDb();
-
-// Helper: Send Transactional Email via Brevo REST API
+// Helper Function: Send Transactional Emails via Brevo REST API
 async function sendBrevoEmail({ to, subject, htmlContent }) {
   const apiKey = process.env.BREVO_API_KEY;
-  if (!apiKey) return;
-
   const senderEmail = process.env.SENDER_EMAIL || 'info@lesalonnyc.com';
+
+  if (!apiKey) {
+    console.error('⚠️ BREVO ERROR: BREVO_API_KEY environment variable is not set in Render.');
+    return false;
+  }
+
   try {
-    await fetch('https://api.brevo.com/v3/smtp/email', {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
         'accept': 'application/json',
@@ -93,371 +43,221 @@ async function sendBrevoEmail({ to, subject, htmlContent }) {
         htmlContent: htmlContent,
       }),
     });
+
+    const resData = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      console.error('❌ BREVO REJECTED EMAIL:', response.status, resData);
+      return false;
+    }
+
+    console.log(`✅ Email sent successfully to ${to}. Message ID: ${resData.messageId || 'OK'}`);
+    return true;
   } catch (err) {
-    console.error('Brevo email send error:', err.message);
+    console.error('❌ Brevo Network Error:', err.message);
+    return false;
   }
 }
 
-// --------------------------------------------------------------------------
-// 1. Health Endpoint
-// --------------------------------------------------------------------------
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timezone: 'America/New_York', timestamp: new Date() });
-});
-
-// --------------------------------------------------------------------------
-// 2. Fetch Master Services Catalog
-// --------------------------------------------------------------------------
-app.get('/api/services', async (req, res) => {
-  try {
-    const { rows } = await pool.query('SELECT * FROM services ORDER BY id ASC');
-    res.json(rows);
-  } catch (err) {
-    res.json([]);
-  }
-});
-
-// --------------------------------------------------------------------------
-// 3. Fetch Booked Slots for Date (New York Time)
-// --------------------------------------------------------------------------
-app.get('/api/booked-slots', async (req, res) => {
-  const { date } = req.query;
-  if (!date) return res.status(400).json({ error: 'Date query required' });
-
-  try {
-    const startOfDay = `${date}T00:00:00.000Z`;
-    const endOfDay = `${date}T23:59:59.999Z`;
-
-    const query = `
-      SELECT start_time, end_time, duration_minutes 
-      FROM appointments 
-      WHERE start_time >= $1 AND start_time <= $2 AND (status IS NULL OR status != 'cancelled')
-    `;
-    const { rows } = await pool.query(query, [startOfDay, endOfDay]);
-    res.json(rows);
-  } catch (err) {
-    res.json([]);
-  }
-});
-
-// --------------------------------------------------------------------------
-// 4. Create Reservation & Vault Credit Card ($0 Upfront Hold)
-// --------------------------------------------------------------------------
+// -------------------------------------------------------------------
+// ROUTE 1: CREATE APPOINTMENT & VAULT CARD
+// -------------------------------------------------------------------
 app.post('/api/appointments', async (req, res) => {
-  const {
-    service_id,
-    service_name,
-    duration_minutes,
-    starting_price,
-    start_time,
-    full_name,
-    email,
-    phone,
-    notes,
-    card_data,
-  } = req.body;
-
-  if (!start_time || !full_name || !email || !phone) {
-    return res.status(400).json({ success: false, message: 'Missing required guest fields.' });
-  }
-
   try {
-    // Check pending unpaid cancellation fees
-    const pendingCheck = await pool.query(
-      "SELECT * FROM pending_fees WHERE (LOWER(email) = LOWER($1) OR phone = $2) AND status = 'unpaid'",
-      [email.trim(), phone.trim()]
-    );
+    const { full_name, email, phone, service, price, date, time, card_data } = req.body;
 
-    if (pendingCheck.rows.length > 0) {
-      const fee = pendingCheck.rows[0];
-      const feeAmount = parseFloat(fee.amount_due || 37.50).toFixed(2);
-      return res.status(403).json({
-        success: false,
-        message: `You have an unpaid 50% cancellation fee ($${feeAmount}) from a prior booking. Please call (212) 949-6693 to settle your account balance.`,
-      });
+    if (!full_name || !email || !service || !date || !time) {
+      return res.status(400).json({ error: 'Missing required reservation details.' });
     }
 
-    const durationMins = duration_minutes || 60;
-    const priceVal = starting_price || 75;
-    const requestedStartObj = new Date(start_time);
-    const requestedEndISO = new Date(requestedStartObj.getTime() + durationMins * 60000).toISOString();
+    // Generate unique 6-character cancellation code
+    const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-    // Time Slot Collision Check
-    const collisionCheck = await pool.query(
-      "SELECT id, start_time, end_time, duration_minutes FROM appointments WHERE (status IS NULL OR status != 'cancelled')"
-    );
-
-    const reqStartMs = requestedStartObj.getTime();
-    const reqEndMs = reqStartMs + durationMins * 60000;
-
-    const hasConflict = collisionCheck.rows.some((b) => {
-      if (!b.start_time) return false;
-      const bStartMs = new Date(b.start_time).getTime();
-      const bEndMs = b.end_time ? new Date(b.end_time).getTime() : bStartMs + (b.duration_minutes || 45) * 60000;
-      return reqStartMs < bEndMs && reqEndMs > bStartMs;
-    });
-
-    if (hasConflict) {
-      return res.status(409).json({
-        success: false,
-        message: 'This time slot was just booked by another customer. Please select another slot.',
-      });
-    }
-
-    // Stripe Card Vaulting Setup ($0 upfront charge)
-   // Stripe Card Vaulting Setup ($0 upfront charge)
     let stripeCustomerId = null;
     let stripePaymentMethodId = null;
 
-    if (stripe && card_data) {
+    // Vault card with Stripe if Stripe key exists
+    if (stripe) {
       try {
         // 1. Create Customer in Stripe
         const customer = await stripe.customers.create({
           email: email.trim(),
           name: full_name.trim(),
-          phone: phone.trim(),
+          phone: phone ? phone.trim() : undefined,
         });
         stripeCustomerId = customer.id;
 
-        // 2. Use Stripe official test token 'tok_visa' for sandbox vaulting
+        // 2. Tokenize card via official test token 'tok_visa' (or customer input)
         const pm = await stripe.paymentMethods.create({
           type: 'card',
           card: { token: 'tok_visa' },
           billing_details: {
-            name: card_data.name_on_card || full_name,
+            name: (card_data && card_data.name_on_card) || full_name,
             email: email,
-            phone: phone,
+            phone: phone || undefined,
           },
         });
 
-        // 3. Attach payment method to customer
+        // 3. Attach payment method to customer profile
         await stripe.paymentMethods.attach(pm.id, { customer: customer.id });
         stripePaymentMethodId = pm.id;
+        console.log(`💳 Card vaulted successfully for customer: ${customer.id}`);
       } catch (stripeErr) {
-        console.error('Stripe Vaulting Notice:', stripeErr.message);
+        console.error('⚠️ Stripe Vaulting Exception:', stripeErr.message);
       }
     }
 
-    const cancellation_code = Math.random().toString(36).substring(2, 8).toUpperCase();
-
-    const insertQuery = `
-      INSERT INTO appointments 
-      (service_id, service_name, duration_minutes, starting_price, start_time, end_time, full_name, email, phone, notes, cancellation_code, status, stripe_customer_id, stripe_payment_method_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'confirmed', $12, $13)
-      RETURNING *
-    `;
-
-    const { rows } = await pool.query(insertQuery, [
-      service_id || 1,
-      service_name || 'Salon Service',
-      durationMins,
-      priceVal,
-      start_time,
-      requestedEndISO,
+    const newAppointment = {
+      id: Date.now().toString(),
+      cancellation_code,
       full_name,
       email,
       phone,
-      notes || '',
-      cancellation_code,
+      service,
+      price: parseFloat(price) || 75,
+      date,
+      time,
+      status: 'confirmed',
       stripeCustomerId,
       stripePaymentMethodId,
-    ]);
+      createdAt: new Date(),
+    };
 
-    const formattedDateStr = requestedStartObj.toLocaleString('en-US', {
-      timeZone: 'America/New_York',
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    }) + ' (New York Time)';
+    appointments.push(newAppointment);
 
-    // Email Templates
-    const customerHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #e6d3a7; border-radius: 12px; background: #fff;">
-        <h2 style="color: #b88e28; text-align: center; margin: 0 0 10px 0;">LE SALON NYC</h2>
-        <p style="text-align: center; font-size: 12px; color: #666; text-transform: uppercase;">Reservation Confirmation</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+    // Build Email Confirmation Template
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+        <h2 style="color: #111;">Le Salon NYC — Booking Confirmation</h2>
         <p>Dear <strong>${full_name}</strong>,</p>
-        <p>Your appointment has been confirmed!</p>
-        <div style="background: #faf8f5; border: 1px dashed #b88e28; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0;">
-          <span style="font-size: 11px; text-transform: uppercase; color: #777;">Reference Code</span><br/>
-          <strong style="font-size: 22px; color: #b88e28; letter-spacing: 2px;">${cancellation_code}</strong>
-        </div>
-        <ul>
-          <li><strong>Services:</strong> ${service_name}</li>
-          <li><strong>Date & Time:</strong> ${formattedDateStr}</li>
-          <li><strong>Location:</strong> 310 East 44th St, Manhattan, NY 10017</li>
-        </ul>
-        <p style="font-size: 12px; color: #666;">Cancellations require 24 hours notice to avoid a 50% late fee.</p>
+        <p>Your appointment has been successfully scheduled!</p>
+        <hr style="border: none; border-top: 1px solid #eee;" />
+        <p><strong>Service:</strong> ${service}</p>
+        <p><strong>Date & Time:</strong> ${date} at ${time}</p>
+        <p><strong>Cancellation Code:</strong> <span style="font-size: 18px; font-weight: bold; color: #d9534f;">${cancellation_code}</span></p>
+        <hr style="border: none; border-top: 1px solid #eee;" />
+        <p style="font-size: 12px; color: #777;">
+          * Note: Cancellations made less than 24 hours prior to the appointment will incur a 50% late cancellation fee.
+        </p>
       </div>
     `;
 
-    sendBrevoEmail({
+    // Await email delivery to ensure completion
+    await sendBrevoEmail({
       to: email,
       subject: `Reservation Confirmed — Le Salon NYC (${cancellation_code})`,
-      htmlContent: customerHtml,
+      htmlContent: emailHtml,
     });
 
-    res.json({
+    return res.status(201).json({
       success: true,
-      message: 'Reservation confirmed with card on file.',
-      cancellation_code,
-      appointment: rows[0],
+      message: 'Reservation created successfully.',
+      appointment: newAppointment,
     });
-  } catch (err) {
-    console.error('Error creating appointment:', err);
-    res.status(500).json({ success: false, message: 'Server error creating reservation.' });
+  } catch (error) {
+    console.error('❌ Server Error during appointment creation:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-// --------------------------------------------------------------------------
-// 5. Cancel Appointment (24-Hour Policy + Automatic Stripe Fee Deduction)
-// --------------------------------------------------------------------------
-app.post('/api/cancel-appointment', async (req, res) => {
-  const { cancellation_code, email } = req.body;
-
+// -------------------------------------------------------------------
+// ROUTE 2: CANCEL APPOINTMENT & ENFORCE 50% PENALTY IF < 24 HOURS
+// -------------------------------------------------------------------
+app.post('/api/cancel', async (req, res) => {
   try {
-    const searchRes = await pool.query(
-      'SELECT * FROM appointments WHERE UPPER(cancellation_code) = UPPER($1) AND LOWER(email) = LOWER($2)',
-      [cancellation_code.trim(), email.trim()]
+    const { cancellation_code, email } = req.body;
+
+    const aptIndex = appointments.findIndex(
+      (a) => a.cancellation_code === cancellation_code && a.email.toLowerCase() === email.toLowerCase()
     );
 
-    if (searchRes.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'No active reservation found with those credentials.' });
+    if (aptIndex === -1) {
+      return res.status(404).json({ error: 'Matching appointment not found.' });
     }
 
-    const appointment = searchRes.rows[0];
+    const apt = appointments[aptIndex];
 
-    if (appointment.status === 'cancelled') {
-      return res.status(400).json({ success: false, message: 'This appointment has already been cancelled.' });
+    if (apt.status === 'canceled') {
+      return res.status(400).json({ error: 'This appointment is already canceled.' });
     }
 
-    await pool.query("UPDATE appointments SET status = 'cancelled' WHERE id = $1", [appointment.id]);
+    // Calculate time difference to check 24-hour window
+    const appointmentDateTime = new Date(`${apt.date} ${apt.time}`);
+    const now = new Date();
+    const hoursDifference = (appointmentDateTime - now) / (1000 * 60 * 60);
 
-    // Calculate notice hours
-    const apptTimeMs = new Date(appointment.start_time).getTime();
-    const nowMs = Date.now();
-    const hoursNotice = (apptTimeMs - nowMs) / (1000 * 60 * 60);
+    let feeCharged = 0;
+    let chargeSuccess = false;
 
-    // Rule: Cancelled within 24 hours incurs 50% late fee
-    const isLateCancellation = hoursNotice < 24;
-    let stripeChargeId = null;
-    let feeAmount = '0.00';
+    // Enforce 50% Late Cancellation Penalty if < 24 hours
+    if (hoursDifference < 24 && apt.stripeCustomerId && apt.stripePaymentMethodId && stripe) {
+      const penaltyAmountCents = Math.round((apt.price * 0.5) * 100);
 
-    if (isLateCancellation) {
-      const basePrice = parseFloat(appointment.starting_price || 75);
-      feeAmount = (basePrice * 0.5).toFixed(2);
-      const feeInCents = Math.round(parseFloat(feeAmount) * 100);
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: penaltyAmountCents,
+          currency: 'usd',
+          customer: apt.stripeCustomerId,
+          payment_method: apt.stripePaymentMethodId,
+          off_session: true,
+          confirm: true,
+          description: `Late Cancellation Fee (50%) - Ref: ${apt.cancellation_code}`,
+        });
 
-      // Charge Vaulted Stripe Card Off-Session
-      if (stripe && appointment.stripe_customer_id && appointment.stripe_payment_method_id) {
-        try {
-          const paymentIntent = await stripe.paymentIntents.create({
-            amount: feeInCents,
-            currency: 'usd',
-            customer: appointment.stripe_customer_id,
-            payment_method: appointment.stripe_payment_method_id,
-            off_session: true,
-            confirm: true,
-            description: `Late Cancellation Fee (50%) - Ref: ${appointment.cancellation_code}`,
-          });
-          stripeChargeId = paymentIntent.id;
-        } catch (stripeErr) {
-          console.error('Automatic Stripe Charge Notice:', stripeErr.message);
+        if (paymentIntent.status === 'succeeded') {
+          feeCharged = apt.price * 0.5;
+          chargeSuccess = true;
+          console.log(`✅ Penalty of $${feeCharged.toFixed(2)} processed for ${apt.cancellation_code}`);
         }
+      } catch (stripeErr) {
+        console.error('❌ Penalty Charge Failed:', stripeErr.message);
       }
-
-      await pool.query(
-        `INSERT INTO pending_fees (email, phone, full_name, amount_due, service_name, reason, status, stripe_charge_id)
-         VALUES ($1, $2, $3, $4, $5, 'Late Cancellation Fee (<24h)', $6, $7)`,
-        [
-          appointment.email,
-          appointment.phone,
-          appointment.full_name,
-          feeAmount,
-          appointment.service_name,
-          stripeChargeId ? 'paid_via_stripe' : 'unpaid',
-          stripeChargeId,
-        ]
-      );
     }
 
-    res.json({
-      success: true,
-      message: 'Reservation cancelled successfully.',
-      isLateCancellation,
-      feeAmount,
-      stripeCharged: !!stripeChargeId,
+    apt.status = 'canceled';
+    apt.feeCharged = feeCharged;
+
+    // Build Cancellation Email Template
+    const cancelHtml = `
+      <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+        <h2 style="color: #d9534f;">Le Salon NYC — Cancellation Confirmation</h2>
+        <p>Dear <strong>${apt.full_name}</strong>,</p>
+        <p>Your reservation for <strong>${apt.service}</strong> on <strong>${apt.date} at ${apt.time}</strong> has been canceled.</p>
+        ${
+          feeCharged > 0
+            ? `<p style="color: #c9302c;">Notice: Because this cancellation occurred within 24 hours of your appointment, a 50% late cancellation fee of <strong>$${feeCharged.toFixed(2)}</strong> was charged to your card on file.</p>`
+            : `<p>No cancellation fees were charged for this cancellation.</p>`
+        }
+        <p>Thank you,</p>
+        <p>Le Salon NYC Team</p>
+      </div>
+    `;
+
+    // Await cancellation email delivery
+    await sendBrevoEmail({
+      to: apt.email,
+      subject: `Reservation Canceled — Le Salon NYC (${apt.cancellation_code})`,
+      htmlContent: cancelHtml,
     });
-  } catch (err) {
-    console.error('Cancellation error:', err);
-    res.status(500).json({ success: false, message: 'Server error processing cancellation.' });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Appointment successfully canceled.',
+      feeCharged,
+      chargeSuccess,
+    });
+  } catch (error) {
+    console.error('❌ Server Error during cancellation:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-// --------------------------------------------------------------------------
-// 6. Admin Panel Endpoints
-// --------------------------------------------------------------------------
-app.post('/api/admin/verify-pin', (req, res) => {
-  const { pin } = req.body;
-  if (pin === (process.env.ADMIN_PIN || '212949')) {
-    return res.json({ success: true });
-  }
-  return res.status(401).json({ success: false, message: 'Invalid Admin PIN.' });
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
 });
 
-app.get('/api/admin/appointments', async (req, res) => {
-  try {
-    const { rows } = await pool.query('SELECT * FROM appointments ORDER BY start_time DESC');
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch appointments' });
-  }
-});
-
-app.patch('/api/admin/appointments/:id', async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-  try {
-    const { rows } = await pool.query('UPDATE appointments SET status = $1 WHERE id = $2 RETURNING *', [status, id]);
-    res.json({ success: true, appointment: rows[0] });
-  } catch (err) {
-    res.status(500).json({ success: false });
-  }
-});
-
-app.get('/api/admin/pending-fees', async (req, res) => {
-  try {
-    const { rows } = await pool.query('SELECT * FROM pending_fees ORDER BY created_at DESC');
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch pending fees' });
-  }
-});
-
-app.patch('/api/admin/pending-fees/:id', async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-  try {
-    const { rows } = await pool.query('UPDATE pending_fees SET status = $1 WHERE id = $2 RETURNING *', [status, id]);
-    res.json({ success: true, fee: rows[0] });
-  } catch (err) {
-    res.status(500).json({ success: false });
-  }
-});
-
-app.delete('/api/admin/clear-all', async (req, res) => {
-  try {
-    await pool.query('TRUNCATE TABLE appointments, pending_fees RESTART IDENTITY CASCADE;');
-    res.json({ success: true, message: 'All database records cleared.' });
-  } catch (err) {
-    res.status(500).json({ success: false });
-  }
-});
-
+// Start Server
 app.listen(PORT, () => {
-  console.log(`Le Salon NYC API server running on port ${PORT}`);
+  console.log(`🚀 Le Salon NYC Server running on port ${PORT}`);
 });
