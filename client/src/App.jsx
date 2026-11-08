@@ -25,7 +25,6 @@ const STYLISTS_DATA = [
   { id: 'ricardo', name: 'Ricardo', title: 'Senior Color Specialist' }
 ];
 
-// Time Helper: Format minutes into 12-hour string (e.g. 600 -> "10:00 AM")
 function formatMinutesTo12H(minutes) {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
@@ -35,20 +34,19 @@ function formatMinutesTo12H(minutes) {
   return `${h12}:${mStr} ${ampm}`;
 }
 
-// Generate Start & End Time Slots based on Total Service Duration & Salon Hours
 function generateStartAndEndSlots(dateString, totalDurationMinutes) {
-  if (!dateString) return { closed: false, slots: [] };
+  if (!dateString || totalDurationMinutes <= 0) return { closed: false, slots: [] };
   
   const parts = dateString.split('-');
   const selectedDate = new Date(parts[0], parts[1] - 1, parts[2]);
-  const dayOfWeek = selectedDate.getDay(); // 0 = Sun, 6 = Sat
+  const dayOfWeek = selectedDate.getDay();
 
   if (dayOfWeek === 0) {
     return { closed: true, reason: 'Sunday Closed', slots: [] };
   }
 
   const startHourMins = 10 * 60; // 10:00 AM
-  const closingHourMins = (dayOfWeek === 6 ? 18 : 20) * 60; // Sat = 6 PM (18:00), Mon-Fri = 8 PM (20:00)
+  const closingHourMins = (dayOfWeek === 6 ? 18 : 20) * 60; // Sat = 6 PM, Mon-Fri = 8 PM
 
   const slots = [];
   let currentMins = startHourMins;
@@ -64,7 +62,7 @@ function generateStartAndEndSlots(dateString, totalDurationMinutes) {
       duration: totalDurationMinutes
     });
 
-    currentMins += 30; // 30-minute interval increments
+    currentMins += 30;
   }
 
   return { closed: false, slots };
@@ -75,30 +73,25 @@ export default function App() {
   const [step, setStep] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('All');
   
-  // Multi-Service Selection Array
-  const [selectedServices, setSelectedServices] = useState([SERVICES_DATA[0]]);
+  // Starts EMPTY (0 services selected)
+  const [selectedServices, setSelectedServices] = useState([]);
   const [selectedStylist, setSelectedStylist] = useState(STYLISTS_DATA[0]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   
-  // Calculate Combined Totals
   const totalDuration = selectedServices.reduce((sum, s) => sum + s.duration, 0);
   const totalPrice = selectedServices.reduce((sum, s) => sum + (s.price || 0), 0);
   const hasConsultationService = selectedServices.some(s => s.price === null);
 
-  // Dynamic Slot Generation based on combined duration
   const scheduleInfo = generateStartAndEndSlots(selectedDate, totalDuration);
   const [selectedSlotObj, setSelectedSlotObj] = useState(scheduleInfo.slots[0] || null);
 
-  // Form State
   const [guest, setGuest] = useState({ fullName: '', email: '', phone: '', notes: '' });
   const [policyAccepted, setPolicyAccepted] = useState(false);
   const [validationError, setValidationError] = useState('');
   
-  // Real-time Mock Booking State
   const [mockBookings, setMockBookings] = useState([]);
   const [activeConfirmation, setActiveConfirmation] = useState(null);
 
-  // Manage Tab Search Form State
   const [cancelCodeInput, setCancelCodeInput] = useState('');
   const [cancelEmailInput, setCancelEmailInput] = useState('');
   const [cancelFeedback, setCancelFeedback] = useState(null);
@@ -109,13 +102,11 @@ export default function App() {
     ? SERVICES_DATA 
     : SERVICES_DATA.filter(s => s.category === categoryFilter);
 
-  // Toggle multi-service selection
+  // Toggle selection cleanly from 0 to N services
   const toggleService = (service) => {
     const exists = selectedServices.some(s => s.id === service.id);
     if (exists) {
-      if (selectedServices.length > 1) {
-        setSelectedServices(selectedServices.filter(s => s.id !== service.id));
-      }
+      setSelectedServices(selectedServices.filter(s => s.id !== service.id));
     } else {
       setSelectedServices([...selectedServices, service]);
     }
@@ -150,7 +141,6 @@ export default function App() {
     setActiveConfirmation(newBooking);
   };
 
-  // Real-time Cancellation: Marks booking status as 'Canceled' to immediately free slot
   const handleCancelSearch = (e) => {
     e.preventDefault();
     setCancelFeedback(null);
@@ -166,7 +156,7 @@ export default function App() {
 
     if (foundIdx !== -1) {
       const updated = [...mockBookings];
-      updated[foundIdx].status = 'Canceled'; // Slot becomes free in real-time
+      updated[foundIdx].status = 'Canceled';
       setMockBookings(updated);
       setCancelFeedback({
         success: true,
@@ -211,7 +201,7 @@ export default function App() {
       <main className="main-wrapper">
         {activeTab === 'book' ? (
           activeConfirmation ? (
-            /* Confirmation Screen */
+            /* Confirmation Card */
             <div className="card-box" style={{ textAlign: 'center', padding: '36px 20px' }}>
               <div style={{ fontSize: '3rem', color: '#059669', marginBottom: '12px' }}>✓</div>
               <h2 className="font-serif" style={{ fontSize: '1.6rem', marginBottom: '8px' }}>Reservation Request Received</h2>
@@ -219,7 +209,7 @@ export default function App() {
                 A confirmation summary has been sent to <strong>{activeConfirmation.guestEmail}</strong>.
               </p>
 
-              <div style={{ background: '#faf9f5', border: '1px solid #e7e5e4', borderRadius: '14px', padding: '20px', textAlign: 'left', marginBottom: '24px' }}>
+              <div style={{ background: '#faf9f6', border: '1px solid #e7e5e4', borderRadius: '14px', padding: '20px', textAlign: 'left', marginBottom: '24px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #efece6' }}>
                   <span style={{ color: '#78716c', fontSize: '0.88rem' }}>Reference Code:</span>
                   <strong style={{ fontFamily: 'monospace', fontSize: '1.2rem', color: '#c59b27' }}>{activeConfirmation.code}</strong>
@@ -242,7 +232,7 @@ export default function App() {
                 </div>
               </div>
 
-              <button className="btn-primary" onClick={() => { setActiveConfirmation(null); setStep(1); }}>
+              <button className="btn-primary" onClick={() => { setActiveConfirmation(null); setStep(1); setSelectedServices([]); }}>
                 Book Another Service
               </button>
             </div>
@@ -254,15 +244,15 @@ export default function App() {
                   <div className="step-badge">{step > 1 ? '✓' : '1'}</div>
                   <span>1. Services ({selectedServices.length})</span>
                 </div>
-                <div className={`step-item ${step === 2 ? 'active' : step > 2 ? 'completed' : ''}`} onClick={() => setStep(2)}>
+                <div className={`step-item ${step === 2 ? 'active' : step > 2 ? 'completed' : ''}`} onClick={() => selectedServices.length > 0 && setStep(2)}>
                   <div className="step-badge">{step > 2 ? '✓' : '2'}</div>
                   <span>2. Stylist</span>
                 </div>
-                <div className={`step-item ${step === 3 ? 'active' : step > 3 ? 'completed' : ''}`} onClick={() => setStep(3)}>
+                <div className={`step-item ${step === 3 ? 'active' : step > 3 ? 'completed' : ''}`} onClick={() => selectedServices.length > 0 && setStep(3)}>
                   <div className="step-badge">{step > 3 ? '✓' : '3'}</div>
                   <span>3. Time Slots</span>
                 </div>
-                <div className={`step-item ${step === 4 ? 'active' : ''}`} onClick={() => setStep(4)}>
+                <div className={`step-item ${step === 4 ? 'active' : ''}`} onClick={() => selectedServices.length > 0 && setStep(4)}>
                   <div className="step-badge">4</div>
                   <span>4. Confirm</span>
                 </div>
@@ -271,19 +261,41 @@ export default function App() {
               {/* STEP 1: Multi-Service Selection */}
               {step === 1 && (
                 <div>
+                  {/* Golden Luxury Summary Box */}
                   <div className="summary-drawer">
-                    <div>
-                      <div style={{ fontSize: '0.82rem', opacity: 0.8 }}>Selected Services ({selectedServices.length})</div>
-                      <div className="summary-tags">
-                        {selectedServices.map(s => (
-                          <span key={s.id} className="summary-tag">{s.name} ({s.duration}m)</span>
-                        ))}
+                    {selectedServices.length === 0 ? (
+                      <div style={{ width: '100%', textAlign: 'center', padding: '4px 0' }}>
+                        <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#c59b27' }}>
+                          ✨ Choose Your Salon Services
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: '#6b6560', marginTop: '2px' }}>
+                          Select one or more services below to build your custom reservation
+                        </div>
                       </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>${totalPrice} {hasConsultationService ? '+' : ''}</div>
-                      <div style={{ fontSize: '0.78rem', color: '#c59b27' }}>⏱ {totalDuration} Mins Total</div>
-                    </div>
+                    ) : (
+                      <>
+                        <div>
+                          <div style={{ fontSize: '0.82rem', color: '#6b6560', fontWeight: 600 }}>
+                            Selected Services ({selectedServices.length})
+                          </div>
+                          <div className="summary-tags">
+                            {selectedServices.map(s => (
+                              <span key={s.id} className="summary-tag">
+                                {s.name} ({s.duration}m)
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right', minWidth: '110px' }}>
+                          <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#c59b27' }}>
+                            ${totalPrice} {hasConsultationService ? '+' : ''}
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: '#6b6560', fontWeight: 600 }}>
+                            ⏱ {totalDuration} Mins Total
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Category Pills */}
@@ -299,7 +311,7 @@ export default function App() {
                     ))}
                   </div>
 
-                  {/* Service Cards List */}
+                  {/* Services Menu Cards */}
                   {filteredServices.map((service) => {
                     const isSelected = selectedServices.some(s => s.id === service.id);
                     return (
@@ -324,8 +336,14 @@ export default function App() {
                   })}
 
                   <div className="action-row">
-                    <button className="btn-primary" onClick={() => setStep(2)}>
-                      Continue with {selectedServices.length} Service{selectedServices.length > 1 ? 's' : ''} ({totalDuration} Mins) →
+                    <button
+                      className="btn-primary"
+                      disabled={selectedServices.length === 0}
+                      onClick={() => setStep(2)}
+                    >
+                      {selectedServices.length === 0
+                        ? 'Select at least 1 service to continue'
+                        : `Continue with ${selectedServices.length} Service${selectedServices.length > 1 ? 's' : ''} (${totalDuration} Mins) →`}
                     </button>
                   </div>
                 </div>
@@ -343,12 +361,12 @@ export default function App() {
                         <div
                           key={stylist.id}
                           className="service-card"
-                          style={{ cursor: 'pointer', border: isSelected ? '2px solid #c59b27' : '1px solid #e7e5e4' }}
+                          style={{ cursor: 'pointer', border: isSelected ? '2px solid #c59b27' : '1px solid #e7e3da' }}
                           onClick={() => setSelectedStylist(stylist)}
                         >
                           <div>
                             <div style={{ fontWeight: 600, fontSize: '0.98rem' }}>{stylist.name}</div>
-                            <div style={{ fontSize: '0.8rem', color: '#78716c' }}>{stylist.title}</div>
+                            <div style={{ fontSize: '0.8rem', color: '#6b6560' }}>{stylist.title}</div>
                           </div>
                           <button className={`select-btn ${isSelected ? 'selected' : ''}`}>
                             {isSelected ? 'Selected' : 'Select'}
@@ -567,7 +585,7 @@ export default function App() {
           /* MANAGE / CANCEL TAB */
           <div className="card-box">
             <h3 className="font-serif" style={{ marginBottom: '8px', fontSize: '1.3rem' }}>Manage / Cancel Reservation</h3>
-            <p style={{ fontSize: '0.85rem', color: '#78716c', marginBottom: '20px' }}>
+            <p style={{ fontSize: '0.85rem', color: '#6b6560', marginBottom: '20px' }}>
               Enter your Reference Code and Email to release your reservation slot in real-time.
             </p>
 
