@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://lesalon-booking.onrender.com';
+// Hardcoded production backend URL to bypass Vercel environment variable bundling issues
+const API_BASE_URL = 'https://lesalon-booking.onrender.com';
 
 const SERVICES = [
   { id: 1, service_name: 'Shampoo Haircut & Blow Dry', starting_price: 75, duration_minutes: 75, category: 'Haircut & Styling' },
@@ -73,12 +74,12 @@ export default function App() {
   const [cancelResult, setCancelResult] = useState(null);
   const [cancelError, setCancelError] = useState('');
 
-  // Auto-warmup ping on initial load
+  // Background ping on app start to wake Render server
   useEffect(() => {
     fetch(`${API_BASE_URL}/health`).catch(() => {});
   }, []);
 
-  // Fetch real-time booked slots whenever date changes
+  // Fetch real-time booked slots when date changes
   useEffect(() => {
     fetchBookedSlots(bookingDate);
   }, [bookingDate]);
@@ -91,14 +92,14 @@ export default function App() {
         setBookedSlots(data.bookedSlots || []);
       }
     } catch (err) {
-      console.error('Error fetching booked slots:', err);
+      console.log('Booked slots ping notice:', err);
     }
   };
 
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
     if (!agreedTerms) {
-      setErrorMessage('Please check the box to agree to the Le Salon NYC policies.');
+      setErrorMessage('Please check the box to agree to the Le Salon NYC terms.');
       return;
     }
 
@@ -129,10 +130,11 @@ export default function App() {
         setBookingResult(data);
         fetchBookedSlots(bookingDate);
       } else {
-        setErrorMessage(data.error || 'Unable to complete reservation. Please try another time slot.');
+        setErrorMessage(data.error || 'Unable to process reservation. Please try again.');
       }
     } catch (err) {
-      setErrorMessage('Network connection timeout. Server may be waking up, please click confirm again.');
+      console.error('Submit error:', err);
+      setErrorMessage('Server is waking up. Please click "Confirm Reservation" once more.');
     } finally {
       setIsSubmitting(false);
     }
@@ -154,12 +156,12 @@ export default function App() {
       const data = await res.json();
       if (res.ok && data.success) {
         setCancelResult(data);
-        fetchBookedSlots(bookingDate); // Instantly release freed slot
+        fetchBookedSlots(bookingDate);
       } else {
-        setCancelError(data.error || 'Unable to locate active matching appointment.');
+        setCancelError(data.error || 'No active reservation found matching those details.');
       }
     } catch (err) {
-      setCancelError('Network error connecting to backend server.');
+      setCancelError('Network connection issue. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -167,7 +169,7 @@ export default function App() {
 
   return (
     <div>
-      {/* Header */}
+      {/* Header Navigation */}
       <header className="app-header">
         <div className="header-inner">
           <div>
@@ -195,17 +197,17 @@ export default function App() {
       <main className="main-container">
         {activeTab === 'book' ? (
           bookingResult ? (
-            /* Confirmation View */
+            /* Confirmation Screen */
             <div className="info-card" style={{ textAlign: 'center', padding: '32px 20px' }}>
               <div style={{ fontSize: '2.5rem', color: '#059669', marginBottom: '10px' }}>✓</div>
               <h2 className="font-serif" style={{ fontSize: '1.5rem', marginBottom: '8px' }}>Reservation Confirmed!</h2>
               <p style={{ fontSize: '0.85rem', color: '#666', marginBottom: '16px' }}>
-                A confirmation email has been dispatched to <strong>{guest.email}</strong>.
+                Confirmation receipt sent to <strong>{guest.email}</strong>.
               </p>
               
               <div style={{ background: '#faf9f6', border: '1px solid #e8e6e1', borderRadius: '8px', padding: '16px', textAlign: 'left', marginBottom: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
-                  <span style={{ color: '#777', fontSize: '0.85rem' }}>Cancellation Reference:</span>
+                  <span style={{ color: '#777', fontSize: '0.85rem' }}>Reference Code:</span>
                   <strong style={{ fontFamily: 'monospace', fontSize: '1.1rem', color: '#c59b27' }}>{bookingResult.cancellation_code || bookingResult.cancellationCode}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
@@ -219,28 +221,28 @@ export default function App() {
               </div>
 
               <button className="confirm-action-btn" onClick={() => { setBookingResult(null); setCurrentStep(1); }}>
-                Book Another Appointment
+                Book Another Service
               </button>
             </div>
           ) : (
             <div>
-              {/* Step Navigation Bar */}
+              {/* Step Navigation */}
               <div className="step-nav-bar">
                 <span className={`step-nav-item ${currentStep === 1 ? 'active' : ''}`} onClick={() => setCurrentStep(1)}>
-                  1. Service
+                  1. Services
                 </span>
                 <span className={`step-nav-item ${currentStep === 2 ? 'active' : ''}`} onClick={() => setCurrentStep(2)}>
                   2. Stylist
                 </span>
                 <span className={`step-nav-item ${currentStep === 3 ? 'active' : ''}`} onClick={() => setCurrentStep(3)}>
-                  3. Date & Time
+                  3. Time
                 </span>
                 <span className={`step-nav-item ${currentStep === 4 ? 'active' : ''}`} onClick={() => setCurrentStep(4)}>
                   4. Confirm
                 </span>
               </div>
 
-              {/* STEP 1: Service Selection */}
+              {/* STEP 1: Services */}
               {currentStep === 1 && (
                 <div>
                   {SERVICES.map((s) => {
@@ -272,10 +274,10 @@ export default function App() {
                 </div>
               )}
 
-              {/* STEP 2: Professional Selection */}
+              {/* STEP 2: Professional */}
               {currentStep === 2 && (
                 <div>
-                  <h3 className="font-serif" style={{ marginBottom: '14px' }}>Select Preferred Stylist</h3>
+                  <h3 className="font-serif" style={{ marginBottom: '14px' }}>Select Stylist</h3>
                   {PROFESSIONALS.map((p) => {
                     const isSelected = selectedProfessional.id === p.id;
                     return (
@@ -301,16 +303,16 @@ export default function App() {
                       ← Back
                     </button>
                     <button className="confirm-action-btn" onClick={() => setCurrentStep(3)}>
-                      Continue to Date & Time →
+                      Continue to Schedule →
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* STEP 3: Date & Real-Time Time Slot Selection */}
+              {/* STEP 3: Time & Date */}
               {currentStep === 3 && (
                 <div>
-                  <h3 className="font-serif" style={{ marginBottom: '14px' }}>Select Schedule</h3>
+                  <h3 className="font-serif" style={{ marginBottom: '14px' }}>Select Date & Time Slot</h3>
                   
                   <div className="form-group">
                     <label className="form-label">Appointment Date</label>
@@ -334,7 +336,7 @@ export default function App() {
                           const isBooked = bookedSlots.includes(slot.value);
                           return (
                             <option key={slot.value} value={slot.value} disabled={isBooked}>
-                              {slot.label} {isBooked ? '(Already Reserved)' : ''}
+                              {slot.label} {isBooked ? '(Booked)' : ''}
                             </option>
                           );
                         })}
@@ -354,13 +356,13 @@ export default function App() {
                 </div>
               )}
 
-              {/* STEP 4: Guest Details & Confirmation */}
+              {/* STEP 4: Confirm */}
               {currentStep === 4 && (
                 <form onSubmit={handleBookingSubmit}>
                   <h3 className="font-serif" style={{ marginBottom: '14px' }}>Complete Reservation</h3>
 
                   <div className="info-card">
-                    <div className="info-card-title">Guest Contact Details</div>
+                    <div className="info-card-title">Guest Details</div>
                     <div className="form-group">
                       <input
                         type="text"
@@ -373,7 +375,7 @@ export default function App() {
                     <div className="form-group">
                       <input
                         type="email"
-                        placeholder="Email Address (for receipt) *"
+                        placeholder="Email Address *"
                         value={guest.email}
                         onChange={(e) => setGuest({ ...guest, email: e.target.value })}
                         required
@@ -391,13 +393,13 @@ export default function App() {
                   </div>
 
                   <div className="info-card">
-                    <div className="info-card-title">Salon Policy & Notes</div>
+                    <div className="info-card-title">Salon Policies</div>
                     <p className="policy-text" style={{ marginBottom: '10px' }}>
-                      Cancellations can be made for free up to 24 hours prior using your unique 6-character reference code.
+                      Cancellations can be made for free up to 24 hours prior using your 6-character reference code.
                     </p>
 
                     <div className="form-group">
-                      <label className="form-label">Hair notes or special requests</label>
+                      <label className="form-label">Notes or special requests</label>
                       <textarea
                         placeholder="Add notes..."
                         value={guest.comments}
@@ -433,20 +435,20 @@ export default function App() {
             </div>
           )
         ) : (
-          /* Manage / Cancel Tab */
+          /* Manage / Cancel View */
           <div className="info-card">
-            <h3 className="font-serif" style={{ marginBottom: '6px' }}>Manage / Cancel Reservation</h3>
+            <h3 className="font-serif" style={{ marginBottom: '6px' }}>Cancel Reservation</h3>
             <p className="policy-text" style={{ marginBottom: '16px' }}>
-              Enter your reference code and email address to cancel your appointment and release the slot.
+              Enter your reference code and email address to cancel your appointment.
             </p>
 
             {cancelError && <div className="alert-error">{cancelError}</div>}
 
             {cancelResult ? (
               <div style={{ background: '#faf9f6', padding: '16px', borderRadius: '8px', border: '1px solid #e8e6e1' }}>
-                <p style={{ color: '#059669', fontWeight: 600, fontSize: '1rem' }}>✓ Reservation Canceled</p>
-                <p style={{ color: '#555', fontSize: '0.85rem', marginTop: '6px' }}>
-                  The time slot has been freed in our database and a confirmation has been sent to your email.
+                <p style={{ color: '#059669', fontWeight: 600 }}>✓ Reservation Canceled Successfully</p>
+                <p style={{ color: '#555', fontSize: '0.85rem', marginTop: '4px' }}>
+                  The time slot has been freed and a confirmation receipt has been sent to your email.
                 </p>
               </div>
             ) : (
