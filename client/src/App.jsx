@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000').replace(/\/+$/, '');
 const SALON_TIME_ZONE = 'America/New_York';
 
 async function apiRequest(path, options = {}) {
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetch(path, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -16,7 +15,7 @@ async function apiRequest(path, options = {}) {
   } catch (error) {
     if (error.name === 'AbortError') throw error;
     throw new Error(
-      `Could not connect to the booking server at ${API_BASE_URL}. Check the deployed VITE_API_BASE_URL and Render CORS settings.`
+      'Could not connect to the booking server. Check your internet connection and try again.'
     );
   }
 

@@ -1,12 +1,12 @@
 require('dotenv').config();
 
 const crypto = require('crypto');
-const cors = require('cors');
 const express = require('express');
 const { Pool } = require('pg');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
+const DB_POOL_MAX = Number(process.env.PG_POOL_MAX) || 2;
 const TIME_ZONE = 'America/New_York';
 const BOOKING_HORIZON_DAYS = 90;
 const STYLISTS = [
@@ -31,21 +31,6 @@ const SERVICES = [
   { id: 15, name: 'Keratin Protein Treatment', price: null, duration: 120 },
 ];
 
-const allowedOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5173')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-    console.error(`CORS rejected origin "${origin}". Configure CLIENT_ORIGIN to include this exact site origin.`);
-    callback(new Error('Origin is not allowed by CORS.'));
-  },
-}));
 app.use(express.json({ limit: '20kb' }));
 
 if (!process.env.DATABASE_URL) {
@@ -56,6 +41,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   connectionTimeoutMillis: 10000,
   idleTimeoutMillis: 30000,
+  max: DB_POOL_MAX,
 });
 
 pool.on('error', (error) => {
@@ -382,6 +368,18 @@ async function initializeDatabase() {
   console.log('Connected to PostgreSQL; booking table is ready.');
 }
 
+let databaseInitialization;
+
+function ensureDatabaseInitialized() {
+  if (!databaseInitialization) {
+    databaseInitialization = initializeDatabase().catch((error) => {
+      databaseInitialization = undefined;
+      throw error;
+    });
+  }
+  return databaseInitialization;
+}
+
 async function healthCheck(_req, res) {
   try {
     await pool.query('SELECT 1');
@@ -611,16 +609,13 @@ app.use((error, _req, res, _next) => {
   if (error instanceof SyntaxError && 'body' in error) {
     return res.status(400).json({ error: 'Request body must be valid JSON.' });
   }
-  if (error.message === 'Origin is not allowed by CORS.') {
-    return res.status(403).json({ error: error.message });
-  }
   console.error('Unhandled request error:', error.message);
   return res.status(500).json({ error: 'An unexpected server error occurred.' });
 });
 
 async function startServer() {
   try {
-    await initializeDatabase();
+    await ensureDatabaseInitialized();
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Le Salon NYC test booking API listening on port ${PORT}.`);
     });
@@ -631,4 +626,18 @@ async function startServer() {
   }
 }
 
-startServer();
+async function handleServerlessRequest(req, res) {
+  try {
+    await ensureDatabaseInitialized();
+  } catch (error) {
+    console.error('API request could not initialize PostgreSQL:', error.message);
+    return res.status(503).json({ error: 'Booking service is temporarily unavailable. Please try again.' });
+  }
+  return app(req, res);
+}
+
+module.exports = { app, handleServerlessRequest, startServer };
+
+if (require.main === module) {
+  startServer();
+}
