@@ -42,6 +42,7 @@ app.use(cors({
       callback(null, true);
       return;
     }
+    console.error(`CORS rejected origin "${origin}". Configure CLIENT_ORIGIN to include this exact site origin.`);
     callback(new Error('Origin is not allowed by CORS.'));
   },
 }));

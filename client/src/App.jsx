@@ -15,7 +15,9 @@ async function apiRequest(path, options = {}) {
     });
   } catch (error) {
     if (error.name === 'AbortError') throw error;
-    throw new Error('Could not connect to the booking server. Check that the backend is running and try again.');
+    throw new Error(
+      `Could not connect to the booking server at ${API_BASE_URL}. Check the deployed VITE_API_BASE_URL and Render CORS settings.`
+    );
   }
 
   const result = await response.json().catch(() => ({}));
