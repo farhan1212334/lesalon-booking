@@ -23,6 +23,11 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
 body {
   background-color: var(--bg-cream);
   color: var(--dark-charcoal);
@@ -31,13 +36,15 @@ body {
   min-height: 100vh;
   width: 100vw;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .font-serif {
   font-family: var(--font-serif);
 }
 
-/* Header Navbar */
+/* Header & Tab Switcher */
 .app-header {
   position: sticky;
   top: 0;
@@ -97,20 +104,25 @@ body {
   transition: all 0.2s ease;
 }
 
+.tab-btn:focus-visible {
+  outline: 2px solid var(--gold-primary);
+  outline-offset: 2px;
+}
+
 .tab-btn.active {
   background: var(--gold-primary);
   color: #ffffff;
   box-shadow: 0 2px 10px rgba(197, 155, 39, 0.25);
 }
 
-/* Main Container */
+/* Main Container Layout */
 .main-wrapper {
   max-width: 860px;
   margin: 0 auto;
   padding: 24px 16px 80px 16px;
 }
 
-/* Stepper Bar */
+/* Stepper Progress Bar */
 .stepper-container {
   display: flex;
   align-items: center;
@@ -155,11 +167,7 @@ body {
   font-weight: 700;
 }
 
-.step-item.active .step-badge {
-  background: var(--gold-primary);
-  color: #ffffff;
-}
-
+.step-item.active .step-badge,
 .step-item.completed .step-badge {
   background: var(--gold-primary);
   color: #ffffff;
@@ -186,6 +194,10 @@ body {
   transition: all 0.2s;
 }
 
+.cat-pill:focus-visible {
+  outline: 2px solid var(--gold-primary);
+}
+
 .cat-pill.active {
   background: var(--gold-light);
   border-color: var(--gold-primary);
@@ -193,7 +205,7 @@ body {
   font-weight: 700;
 }
 
-/* Service Card (Multi-select) */
+/* Service Card Components */
 .service-card {
   background: var(--card-bg);
   border: 1px solid var(--border-light);
@@ -256,13 +268,17 @@ body {
   transition: all 0.2s ease;
 }
 
+.select-btn:focus-visible {
+  outline: 2px solid var(--gold-primary);
+}
+
 .select-btn.selected {
   background: var(--gold-primary);
   color: #ffffff;
   border-color: var(--gold-primary);
 }
 
-/* Golden Luxury Summary Drawer */
+/* Summary Drawer */
 .summary-drawer {
   background: var(--gold-light);
   border: 1.5px solid var(--gold-border);
@@ -293,7 +309,14 @@ body {
   font-weight: 600;
 }
 
-/* Start & End Time Slots Grid */
+/* Time Slot Card Grid */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
 .grid-slots-wide {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -317,7 +340,10 @@ body {
   gap: 2px;
 }
 
-/* Signature Golden Selected Time Slot */
+.slot-btn-wide:focus-visible {
+  outline: 2px solid var(--gold-primary);
+}
+
 .slot-btn-wide.selected {
   background: var(--gold-primary);
   color: #ffffff;
@@ -343,7 +369,7 @@ body {
   opacity: 0.6;
 }
 
-/* Cards & Inputs */
+/* Content Box & Form Styling */
 .card-box {
   background: var(--card-bg);
   border: 1px solid var(--border-light);
@@ -384,10 +410,12 @@ body {
   font-size: 0.95rem;
   color: var(--dark-charcoal);
   outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .form-input:focus, .form-textarea:focus {
   border-color: var(--gold-primary);
+  box-shadow: 0 0 0 3px rgba(197, 155, 39, 0.15);
 }
 
 .form-textarea {
@@ -396,7 +424,7 @@ body {
   resize: vertical;
 }
 
-/* Policy Box */
+/* Policy List Box */
 .policy-list {
   display: flex;
   flex-direction: column;
@@ -416,7 +444,7 @@ body {
   gap: 8px;
 }
 
-/* Action Controls Bar */
+/* Prominent Touch Target Action Buttons */
 .action-row {
   display: flex;
   gap: 12px;
@@ -433,6 +461,16 @@ body {
   font-weight: 700;
   color: var(--dark-charcoal);
   cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #faf8f5;
+  border-color: #d6d3d1;
+}
+
+.btn-secondary:focus-visible {
+  outline: 2px solid var(--gold-primary);
 }
 
 .btn-primary {
@@ -445,12 +483,17 @@ body {
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, transform 0.1s;
   box-shadow: 0 4px 14px rgba(197, 155, 39, 0.25);
 }
 
 .btn-primary:hover:not(:disabled) {
   background: var(--gold-hover);
+}
+
+.btn-primary:focus-visible {
+  outline: 2px solid var(--dark-charcoal);
+  outline-offset: 2px;
 }
 
 .btn-primary:disabled {
@@ -470,9 +513,19 @@ body {
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
+  transition: background-color 0.2s;
 }
 
-/* Status Banners */
+.btn-danger:hover {
+  background: #b91c1c;
+}
+
+.btn-danger:focus-visible {
+  outline: 2px solid #991b1b;
+  outline-offset: 2px;
+}
+
+/* Alert Boxes */
 .status-alert {
   padding: 14px;
   border-radius: var(--radius-sm);
@@ -492,7 +545,7 @@ body {
   color: #047857;
 }
 
-/* Mobile Responsiveness */
+/* Mobile & Tablet Media Queries */
 @media (max-width: 640px) {
   .header-container {
     flex-direction: column;
