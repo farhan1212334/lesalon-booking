@@ -2,15 +2,36 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#171717" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
+    
+    <!-- Fix for BUG-001: Enables mobile pinch-zoom and WCAG text scaling -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- Fix for TC-037: Meta description for search engines -->
+    <meta 
+      name="description" 
+      content="Le Salon NYC — Exclusively organic hair care, haircuts, coloring, highlights, and keratin treatments in New York City." 
+    />
+    
+    <!-- Verified for TC-002: Correct page title -->
     <title>Le Salon NYC — Luxury Salon & Spa Reservations</title>
+
+    <!-- Google Fonts for Le Salon NYC Theme -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
   </head>
   <body>
     <div id="root"></div>
+    
+    <!-- Fix for OBS-001 / TC-036: No-JavaScript fallback -->
+    <noscript>
+      <div style="padding: 20px; text-align: center; font-family: sans-serif;">
+        <h2>Le Salon NYC</h2>
+        <p>Please enable JavaScript in your browser settings to access our online booking system.</p>
+      </div>
+    </noscript>
+    
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
