@@ -275,8 +275,7 @@ export default function App() {
         stylistName: appointment.stylistName,
         date: appointment.date,
         timeLabel: `${appointment.startTime} – ${appointment.endTime}`,
-        emailSent: result.emailStatus.sent,
-        emailWarning: result.emailStatus.message,
+        emailStatus: result.emailStatus,
       });
     } catch (error) {
       setValidationError(error.message);
@@ -310,7 +309,7 @@ export default function App() {
       }
       setCancelFeedback({
         success: true,
-        message: `Reservation ${appointment.referenceCode} canceled for ${appointment.date} at ${appointment.startTime}.${result.emailStatus.sent ? ' A cancellation email was sent.' : ` ${result.emailStatus.message}`}`
+        message: `Reservation ${appointment.referenceCode} canceled for ${appointment.date} at ${appointment.startTime}.${result.emailStatus.sent ? ' The cancellation email was accepted by Brevo.' : ` ${result.emailStatus.customer?.error || result.emailStatus.message}`}`
       });
     } catch (error) {
       setCancelFeedback({
@@ -365,9 +364,15 @@ export default function App() {
               <div style={{ fontSize: '3rem', color: '#059669', marginBottom: '12px' }}>✓</div>
               <h2 className="font-serif" style={{ fontSize: '1.6rem', marginBottom: '8px' }}>Reservation Confirmed</h2>
               <p style={{ color: '#6b6560', fontSize: '0.88rem', marginBottom: '24px' }}>
-                {activeConfirmation.emailSent
-                  ? <>A confirmation email was sent to <strong>{activeConfirmation.guestEmail}</strong>.</>
-                  : activeConfirmation.emailWarning || 'Your reservation was saved, but the confirmation email could not be sent.'}
+                Your booking is saved. Email status (Brevo acceptance does not guarantee inbox delivery):
+                <br />
+                Customer confirmation: {activeConfirmation.emailStatus.customer.accepted
+                  ? `accepted for ${activeConfirmation.guestEmail}`
+                  : `failed — ${activeConfirmation.emailStatus.customer.error}`}
+                <br />
+                Admin notification: {activeConfirmation.emailStatus.admin.accepted
+                  ? 'accepted'
+                  : `failed — ${activeConfirmation.emailStatus.admin.error}`}
               </p>
 
               <div style={{ background: '#faf9f6', border: '1px solid #e7e3da', borderRadius: '14px', padding: '20px', textAlign: 'left', marginBottom: '24px' }}>

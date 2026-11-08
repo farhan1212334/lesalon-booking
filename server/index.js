@@ -203,10 +203,12 @@ function escapeHtml(value) {
 
 async function sendBrevoEmail({ to, subject, htmlContent }) {
   const apiKey = process.env.BREVO_API_KEY;
-  const senderEmail = process.env.SENDER_EMAIL;
-  const replyToEmail = process.env.REPLY_TO_EMAIL || process.env.ADMIN_EMAIL;
+  const senderEmail = process.env.SENDER_EMAIL || process.env.SMTP_EMAIL;
+  const replyToEmail = process.env.REPLY_TO_EMAIL ||
+    process.env.ADMIN_EMAIL ||
+    process.env.SALON_NOTIFICATION_EMAIL;
   if (!apiKey || !senderEmail) {
-    throw new Error('BREVO_API_KEY and SENDER_EMAIL must be configured to send email.');
+    throw new Error('Missing BREVO_API_KEY or SENDER_EMAIL in the backend environment.');
   }
 
   const payload = {
@@ -230,17 +232,27 @@ async function sendBrevoEmail({ to, subject, htmlContent }) {
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
+    const responseBody = await response.text();
     if (!response.ok) {
-      const details = await response.text();
-      throw new Error(`Brevo rejected the email (HTTP ${response.status}): ${details.slice(0, 500)}`);
+      let details = responseBody;
+      try {
+        const parsed = JSON.parse(responseBody);
+        details = parsed.message || parsed.code || responseBody;
+      } catch {
+        // Keep Brevo's response text when it is not JSON.
+      }
+      throw new Error(`Brevo rejected the email (HTTP ${response.status}): ${String(details).slice(0, 300)}`);
     }
+    return { accepted: true };
   } finally {
     clearTimeout(timeout);
   }
 }
 
 async function sendBookingEmails(appointment) {
-  const adminEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  const adminEmail = (process.env.ADMIN_EMAIL || process.env.SALON_NOTIFICATION_EMAIL || '')
+    .trim()
+    .toLowerCase();
   const customerName = escapeHtml(appointment.fullName);
   const serviceNames = escapeHtml(appointment.serviceNames.join(', '));
   const stylistName = escapeHtml(appointment.stylistName);
@@ -277,25 +289,44 @@ async function sendBookingEmails(appointment) {
       <strong>Reference code:</strong> ${referenceCode}</p>
     </div>`;
 
-  const results = await Promise.allSettled([
-    sendBrevoEmail({
-      to: appointment.email,
-      subject: `Test booking received — ${appointment.referenceCode}`,
-      htmlContent: customerHtml,
-    }),
-    ...(adminEmail ? [sendBrevoEmail({
-      to: adminEmail,
-      subject: `New test booking — ${appointment.referenceCode}`,
-      htmlContent: salonHtml,
-    })] : []),
-  ]);
-  const failures = results.filter((result) => result.status === 'rejected');
-  for (const failure of failures) {
-    console.error('Email delivery failed:', failure.reason.message);
-  }
+  const deliveries = [
+    {
+      recipient: 'customer',
+      send: () => sendBrevoEmail({
+        to: appointment.email,
+        subject: `Test booking received — ${appointment.referenceCode}`,
+        htmlContent: customerHtml,
+      }),
+    },
+    {
+      recipient: 'admin',
+      send: () => adminEmail
+        ? sendBrevoEmail({
+          to: adminEmail,
+          subject: `New test booking — ${appointment.referenceCode}`,
+          htmlContent: salonHtml,
+        })
+        : Promise.reject(new Error('ADMIN_EMAIL is not set in the Render environment.')),
+    },
+  ];
+  const results = await Promise.all(deliveries.map(async ({ recipient, send }) => {
+    try {
+      await send();
+      console.info(`Brevo accepted ${recipient} booking email for reference ${appointment.referenceCode}.`);
+      return { recipient, accepted: true };
+    } catch (error) {
+      console.error(`Brevo ${recipient} booking email failed for reference ${appointment.referenceCode}:`, error.message);
+      return { recipient, accepted: false, error: error.message };
+    }
+  }));
+  const customer = results.find((result) => result.recipient === 'customer');
+  const admin = results.find((result) => result.recipient === 'admin');
+  const failures = results.filter((result) => !result.accepted);
   return {
     sent: failures.length === 0,
-    message: failures.length === 0 ? undefined : 'Booking saved, but one or more emails could not be sent.',
+    customer: { accepted: customer.accepted, error: customer.error },
+    admin: { accepted: admin.accepted, error: admin.error },
+    message: failures.length === 0 ? undefined : 'Booking saved, but one or more emails were not accepted by Brevo.',
   };
 }
 
@@ -353,7 +384,19 @@ async function initializeDatabase() {
 async function healthCheck(_req, res) {
   try {
     await pool.query('SELECT 1');
-    res.status(200).json({ status: 'ok', database: 'connected' });
+    const senderConfigured = Boolean(process.env.SENDER_EMAIL || process.env.SMTP_EMAIL);
+    const adminConfigured = Boolean(process.env.ADMIN_EMAIL || process.env.SALON_NOTIFICATION_EMAIL);
+    const emailConfigured = Boolean(process.env.BREVO_API_KEY && senderConfigured && adminConfigured);
+    res.status(200).json({
+      status: 'ok',
+      database: 'connected',
+      email: {
+        configured: emailConfigured,
+        apiKeyConfigured: Boolean(process.env.BREVO_API_KEY),
+        senderConfigured,
+        adminConfigured,
+      },
+    });
   } catch (error) {
     console.error('Health check database query failed:', error.message);
     res.status(503).json({ status: 'error', database: 'unavailable' });
@@ -542,10 +585,14 @@ app.post('/api/cancel', async (req, res) => {
             <strong>Reference code:</strong> ${escapeHtml(appointment.referenceCode)}</p>
           </div>`,
       });
-      emailStatus = { sent: true };
+      emailStatus = { sent: true, customer: { accepted: true } };
     } catch (error) {
-      console.error('Cancellation email delivery failed:', error.message);
-      emailStatus = { sent: false, message: 'Cancellation saved, but the email could not be sent.' };
+      console.error(`Brevo cancellation email failed for reference ${appointment.referenceCode}:`, error.message);
+      emailStatus = {
+        sent: false,
+        customer: { accepted: false, error: error.message },
+        message: 'Cancellation saved, but Brevo did not accept the email.',
+      };
     }
     return res.status(200).json({
       success: true,
