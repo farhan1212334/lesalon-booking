@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Le Salon NYC Backend API",
   "main": "index.js",
+  "engines": {
+    "node": ">=18.17"
+  },
   "scripts": {
     "start": "node index.js"
   },

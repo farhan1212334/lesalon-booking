@@ -1,4 +1,50 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000').replace(/\/+$/, '');
+const SALON_TIME_ZONE = 'America/New_York';
+
+async function apiRequest(path, options = {}) {
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') throw error;
+    throw new Error('Could not connect to the booking server. Check that the backend is running and try again.');
+  }
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.error || 'The request could not be completed. Please try again.');
+  }
+  return result;
+}
+
+function requestAvailability(date, duration, stylistId, signal) {
+  const params = new URLSearchParams({ date, duration: String(duration), stylistId });
+  return apiRequest(`/api/availability?${params}`, { signal });
+}
+
+function getSalonDateString(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: SALON_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function getDayOfWeek(dateString) {
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
 
 // Full Service Catalog & Pricing Menu (15 Items)
 const SERVICES_DATA = [
@@ -39,9 +85,7 @@ function formatMinutesTo12H(minutes) {
 function generateStartAndEndSlots(dateString, totalDurationMinutes) {
   if (!dateString || totalDurationMinutes <= 0) return { closed: false, slots: [] };
   
-  const parts = dateString.split('-');
-  const selectedDate = new Date(parts[0], parts[1] - 1, parts[2]);
-  const dayOfWeek = selectedDate.getDay(); // 0 = Sunday, 6 = Saturday
+  const dayOfWeek = getDayOfWeek(dateString); // 0 = Sunday, 6 = Saturday
 
   if (dayOfWeek === 0) {
     return { closed: true, reason: 'Sunday Closed', slots: [] };
@@ -71,12 +115,12 @@ function generateStartAndEndSlots(dateString, totalDurationMinutes) {
 }
 
 // Get Today's Date String (YYYY-MM-DD)
-const getTodayStr = () => new Date().toISOString().split('T')[0];
+const getTodayStr = () => getSalonDateString();
 
 // Get Maximum Booking Horizon Date (90 Days Out)
 const getMaxDateStr = () => {
-  const d = new Date();
-  d.setDate(d.getDate() + 90);
+  const d = new Date(`${getTodayStr()}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + 90);
   return d.toISOString().split('T')[0];
 };
 
@@ -98,6 +142,30 @@ export default function App() {
   // Time Slot Schedule Generator
   const scheduleInfo = generateStartAndEndSlots(selectedDate, totalDuration);
   const [selectedSlotObj, setSelectedSlotObj] = useState(scheduleInfo.slots[0] || null);
+  const [availability, setAvailability] = useState({ bookedSlots: [], loading: false, error: '' });
+
+  useEffect(() => {
+    setSelectedSlotObj(scheduleInfo.slots[0] || null);
+  }, [selectedDate, totalDuration]);
+
+  useEffect(() => {
+    if (totalDuration <= 0) {
+      setAvailability({ bookedSlots: [], loading: false, error: '' });
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setAvailability({ bookedSlots: [], loading: true, error: '' });
+    requestAvailability(selectedDate, totalDuration, selectedStylist.id, controller.signal)
+      .then((result) => setAvailability({ bookedSlots: result.bookedSlots, loading: false, error: '' }))
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          setAvailability({ bookedSlots: [], loading: false, error: error.message });
+        }
+      });
+
+    return () => controller.abort();
+  }, [selectedDate, totalDuration, selectedStylist.id]);
 
   // Guest Contact & Form State
   const [guest, setGuest] = useState({ fullName: '', email: '', phone: '', notes: '' });
@@ -105,14 +173,14 @@ export default function App() {
   const [validationError, setValidationError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Local Mock Reservation Storage & Active Confirmation View
-  const [mockBookings, setMockBookings] = useState([]);
+  // Active confirmation view
   const [activeConfirmation, setActiveConfirmation] = useState(null);
 
   // Manage Tab Search Form State
   const [cancelCodeInput, setCancelCodeInput] = useState('');
   const [cancelEmailInput, setCancelEmailInput] = useState('');
   const [cancelFeedback, setCancelFeedback] = useState(null);
+  const [isCanceling, setIsCanceling] = useState(false);
 
   const categories = ['All', 'Haircuts & Styling', 'Color Services', 'Highlights', 'Treatments & Perms', 'Specialized Consultations'];
 
@@ -157,7 +225,7 @@ export default function App() {
   };
 
   // Confirm Booking Submission
-  const handleBookingConfirm = (e) => {
+  const handleBookingConfirm = async (e) => {
     e.preventDefault();
     setValidationError('');
 
@@ -167,59 +235,90 @@ export default function App() {
       return;
     }
 
+    if (!selectedSlotObj) {
+      setValidationError('Please select an available appointment time.');
+      return;
+    }
+
     setIsSubmitting(true);
-
-    setTimeout(() => {
-      const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-      
-      const newBooking = {
-        code,
-        guestName: guest.fullName.trim(),
-        guestEmail: guest.email.trim().toLowerCase(),
-        guestPhone: guest.phone.trim(),
-        servicesList: selectedServices.map(s => s.name).join(', '),
-        totalPriceDisplay: hasConsultationService ? `$${totalPrice} + Consultation Services` : `$${totalPrice}`,
-        totalDuration,
-        stylistName: selectedStylist.name,
-        date: selectedDate,
-        timeLabel: selectedSlotObj ? selectedSlotObj.label : '10:00 AM',
-        startTime: selectedSlotObj ? selectedSlotObj.start : '10:00 AM',
-        status: 'Confirmed'
-      };
-
-      setMockBookings([newBooking, ...mockBookings]);
-      setActiveConfirmation(newBooking);
+    try {
+      const result = await apiRequest('/api/appointments', {
+        method: 'POST',
+        body: JSON.stringify({
+          fullName: guest.fullName,
+          email: guest.email,
+          phone: guest.phone,
+          notes: guest.notes,
+          serviceIds: selectedServices.map(({ id }) => id),
+          stylistId: selectedStylist.id,
+          date: selectedDate,
+          startTime: selectedSlotObj.start,
+          acceptedPolicies: policyAccepted,
+        }),
+      });
+      const appointment = result.appointment;
+      requestAvailability(selectedDate, totalDuration, selectedStylist.id)
+        .then((availabilityResult) => setAvailability({
+          bookedSlots: availabilityResult.bookedSlots,
+          loading: false,
+          error: '',
+        }))
+        .catch((error) => setAvailability({ bookedSlots: [], loading: false, error: error.message }));
+      setActiveConfirmation({
+        code: appointment.referenceCode,
+        guestEmail: appointment.email,
+        servicesList: appointment.serviceNames.join(', '),
+        totalDuration: appointment.duration,
+        totalPriceDisplay: appointment.consultationRequired
+          ? `$${appointment.price} + Consultation Services`
+          : `$${appointment.price}`,
+        stylistName: appointment.stylistName,
+        date: appointment.date,
+        timeLabel: `${appointment.startTime} – ${appointment.endTime}`,
+        emailSent: result.emailStatus.sent,
+        emailWarning: result.emailStatus.message,
+      });
+    } catch (error) {
+      setValidationError(error.message);
+    } finally {
       setIsSubmitting(false);
-    }, 400);
+    }
   };
 
-  // Cancel Booking Lookup (TC-027)
-  const handleCancelSearch = (e) => {
+  const handleCancelSearch = async (e) => {
     e.preventDefault();
     setCancelFeedback(null);
-
-    const codeClean = cancelCodeInput.trim().toUpperCase();
-    const emailClean = cancelEmailInput.trim().toLowerCase();
-
-    const foundIdx = mockBookings.findIndex(
-      b => b.code === codeClean && 
-           b.guestEmail === emailClean &&
-           b.status === 'Confirmed'
-    );
-
-    if (foundIdx !== -1) {
-      const updated = [...mockBookings];
-      updated[foundIdx].status = 'Canceled';
-      setMockBookings(updated);
+    setIsCanceling(true);
+    try {
+      const result = await apiRequest('/api/cancel', {
+        method: 'POST',
+        body: JSON.stringify({
+          referenceCode: cancelCodeInput.trim().toUpperCase(),
+          email: cancelEmailInput.trim().toLowerCase(),
+        }),
+      });
+      const appointment = result.appointment;
+      if (totalDuration > 0) {
+        setAvailability((current) => ({ ...current, loading: true, error: '' }));
+        requestAvailability(selectedDate, totalDuration, selectedStylist.id)
+          .then((availabilityResult) => setAvailability({
+            bookedSlots: availabilityResult.bookedSlots,
+            loading: false,
+            error: '',
+          }))
+          .catch((error) => setAvailability({ bookedSlots: [], loading: false, error: error.message }));
+      }
       setCancelFeedback({
         success: true,
-        message: `Reservation ${codeClean} canceled successfully. The time slot (${updated[foundIdx].date} at ${updated[foundIdx].timeLabel}) has been released back into real-time availability.`
+        message: `Reservation ${appointment.referenceCode} canceled for ${appointment.date} at ${appointment.startTime}.${result.emailStatus.sent ? ' A cancellation email was sent.' : ` ${result.emailStatus.message}`}`
       });
-    } else {
+    } catch (error) {
       setCancelFeedback({
         success: false,
-        message: 'No active reservation found matching that Reference Code and Email address.'
+        message: error.message,
       });
+    } finally {
+      setIsCanceling(false);
     }
   };
 
@@ -256,14 +355,19 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="main-wrapper">
+        <div className="status-alert alert-warning" role="note" style={{ marginBottom: '18px' }}>
+          TEST MODE — do not use this page for real salon appointments.
+        </div>
         {activeTab === 'book' ? (
           activeConfirmation ? (
             /* Confirmation Screen (TC-022) */
             <div className="card-box" style={{ textAlign: 'center', padding: '36px 20px' }}>
               <div style={{ fontSize: '3rem', color: '#059669', marginBottom: '12px' }}>✓</div>
-              <h2 className="font-serif" style={{ fontSize: '1.6rem', marginBottom: '8px' }}>Reservation Request Received</h2>
+              <h2 className="font-serif" style={{ fontSize: '1.6rem', marginBottom: '8px' }}>Reservation Confirmed</h2>
               <p style={{ color: '#6b6560', fontSize: '0.88rem', marginBottom: '24px' }}>
-                A confirmation summary has been sent to <strong>{activeConfirmation.guestEmail}</strong>.
+                {activeConfirmation.emailSent
+                  ? <>A confirmation email was sent to <strong>{activeConfirmation.guestEmail}</strong>.</>
+                  : activeConfirmation.emailWarning || 'Your reservation was saved, but the confirmation email could not be sent.'}
               </p>
 
               <div style={{ background: '#faf9f6', border: '1px solid #e7e3da', borderRadius: '14px', padding: '20px', textAlign: 'left', marginBottom: '24px' }}>
@@ -433,6 +537,12 @@ export default function App() {
                       );
                     })}
                   </div>
+                  {!availability.loading && !availability.error &&
+                    !scheduleInfo.slots.some((slot) => !availability.bookedSlots.includes(slot.start)) && (
+                      <p role="status" style={{ color: '#6b6560', marginTop: '12px' }}>
+                        No appointment times are available for this date and service duration.
+                      </p>
+                    )}
 
                   <div className="action-row">
                     <button type="button" className="btn-secondary" onClick={() => setStep(1)}>
@@ -475,21 +585,30 @@ export default function App() {
                     ) : (
                       <div>
                         <label className="form-label" style={{ marginTop: '14px' }}>
-                          Available Windows for {totalDuration} Mins Duration ({selectedDate.includes('-') && new Date(selectedDate.split('-')[0], selectedDate.split('-')[1]-1, selectedDate.split('-')[2]).getDay() === 6 ? 'Saturday: 10 AM – 6 PM' : 'Mon – Fri: 10 AM – 8 PM'})
+                          Available Windows for {totalDuration} Mins Duration ({getDayOfWeek(selectedDate) === 6 ? 'Saturday: 10 AM – 6 PM' : 'Mon – Fri: 10 AM – 8 PM'})
                         </label>
+
+                        {availability.error && (
+                          <div className="status-alert alert-warning" role="alert">
+                            {availability.error}
+                          </div>
+                        )}
+                        {availability.loading && (
+                          <p role="status" style={{ color: '#6b6560', marginBottom: '12px' }}>
+                            Checking live availability…
+                          </p>
+                        )}
 
                         <div className="grid-slots-wide">
                           {scheduleInfo.slots.map((slot) => {
-                            const isBooked = mockBookings.some(
-                              b => b.date === selectedDate && b.startTime === slot.start && b.status === 'Confirmed'
-                            );
+                            const isBooked = availability.bookedSlots.includes(slot.start);
                             const isSelected = selectedSlotObj && selectedSlotObj.start === slot.start;
 
                             return (
                               <button
                                 key={slot.start}
                                 type="button"
-                                disabled={isBooked}
+                                disabled={isBooked || availability.loading || Boolean(availability.error)}
                                 className={`slot-btn-wide ${isSelected ? 'selected' : ''}`}
                                 onClick={() => setSelectedSlotObj(slot)}
                               >
@@ -512,7 +631,7 @@ export default function App() {
                     <button
                       type="button"
                       className="btn-primary"
-                      disabled={scheduleInfo.closed || !selectedSlotObj}
+                      disabled={scheduleInfo.closed || !selectedSlotObj || availability.loading || Boolean(availability.error) || availability.bookedSlots.includes(selectedSlotObj.start)}
                       onClick={() => setStep(4)}
                     >
                       Continue to Guest Details →
@@ -687,8 +806,8 @@ export default function App() {
                 />
               </div>
 
-              <button type="submit" className="btn-danger" style={{ marginTop: '12px' }}>
-                Cancel Reservation & Release Slot Immediately
+              <button type="submit" disabled={isCanceling} className="btn-danger" style={{ marginTop: '12px' }}>
+                {isCanceling ? 'Canceling Reservation…' : 'Cancel Reservation & Release Slot Immediately'}
               </button>
             </form>
           </div>
