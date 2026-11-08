@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 
-// Hardcoded production backend URL to bypass Vercel environment variable bundling issues
 const API_BASE_URL = 'https://lesalon-booking.onrender.com';
 
 const SERVICES = [
@@ -51,6 +50,19 @@ function generateTimeSlots(durationMinutes) {
   return slots;
 }
 
+// Automatic retry fetch helper to handle Render cold starts silently
+async function fetchWithRetry(url, options, retries = 4, delay = 2000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url, options);
+      return res;
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('book');
   const [currentStep, setCurrentStep] = useState(1);
@@ -66,6 +78,7 @@ export default function App() {
   const [agreedTerms, setAgreedTerms] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingStatusText, setSubmittingStatusText] = useState('Processing...');
   const [bookingResult, setBookingResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -74,25 +87,28 @@ export default function App() {
   const [cancelResult, setCancelResult] = useState(null);
   const [cancelError, setCancelError] = useState('');
 
-  // Background ping on app start to wake Render server
+  // Auto-warmup backend when app loads
   useEffect(() => {
     fetch(`${API_BASE_URL}/health`).catch(() => {});
   }, []);
 
-  // Fetch real-time booked slots when date changes
+  // Early wakeup when step 3 or 4 is reached
   useEffect(() => {
-    fetchBookedSlots(bookingDate);
-  }, [bookingDate]);
+    if (currentStep >= 3) {
+      fetch(`${API_BASE_URL}/health`).catch(() => {});
+      fetchBookedSlots(bookingDate);
+    }
+  }, [currentStep, bookingDate]);
 
   const fetchBookedSlots = async (dateStr) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/booked-slots?date=${dateStr}`);
-      if (res.ok) {
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/booked-slots?date=${dateStr}`, { method: 'GET' }, 2, 1000);
+      if (res && res.ok) {
         const data = await res.json();
         setBookedSlots(data.bookedSlots || []);
       }
     } catch (err) {
-      console.log('Booked slots ping notice:', err);
+      console.log('Slots fetch notice:', err);
     }
   };
 
@@ -104,6 +120,7 @@ export default function App() {
     }
 
     setIsSubmitting(true);
+    setSubmittingStatusText('Connecting to server...');
     setErrorMessage('');
 
     const payload = {
@@ -119,22 +136,21 @@ export default function App() {
     };
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/appointments`, {
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/appointments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      });
+      }, 4, 2500);
 
       const data = await res.json();
       if (res.ok && (data.success || data.cancellation_code || data.cancellationCode)) {
         setBookingResult(data);
         fetchBookedSlots(bookingDate);
       } else {
-        setErrorMessage(data.error || 'Unable to process reservation. Please try again.');
+        setErrorMessage(data.error || 'Unable to process reservation. Please check details.');
       }
     } catch (err) {
-      console.error('Submit error:', err);
-      setErrorMessage('Server is waking up. Please click "Confirm Reservation" once more.');
+      setErrorMessage('Network connection lost. Please check your internet connection and click confirm again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -143,15 +159,16 @@ export default function App() {
   const handleCancelSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setSubmittingStatusText('Processing cancellation...');
     setCancelError('');
     setCancelResult(null);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/cancel`, {
+      const res = await fetchWithRetry(`${API_BASE_URL}/api/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancellation_code: cancelCode.trim().toUpperCase(), email: cancelEmail.trim() }),
-      });
+      }, 3, 2000);
 
       const data = await res.json();
       if (res.ok && data.success) {
@@ -161,7 +178,7 @@ export default function App() {
         setCancelError(data.error || 'No active reservation found matching those details.');
       }
     } catch (err) {
-      setCancelError('Network connection issue. Please try again.');
+      setCancelError('Network error connecting to backend server.');
     } finally {
       setIsSubmitting(false);
     }
@@ -169,7 +186,7 @@ export default function App() {
 
   return (
     <div>
-      {/* Header Navigation */}
+      {/* Header */}
       <header className="app-header">
         <div className="header-inner">
           <div>
@@ -197,7 +214,7 @@ export default function App() {
       <main className="main-container">
         {activeTab === 'book' ? (
           bookingResult ? (
-            /* Confirmation Screen */
+            /* Confirmation Card */
             <div className="info-card" style={{ textAlign: 'center', padding: '32px 20px' }}>
               <div style={{ fontSize: '2.5rem', color: '#059669', marginBottom: '10px' }}>✓</div>
               <h2 className="font-serif" style={{ fontSize: '1.5rem', marginBottom: '8px' }}>Reservation Confirmed!</h2>
@@ -226,7 +243,7 @@ export default function App() {
             </div>
           ) : (
             <div>
-              {/* Step Navigation */}
+              {/* Step Nav Bar */}
               <div className="step-nav-bar">
                 <span className={`step-nav-item ${currentStep === 1 ? 'active' : ''}`} onClick={() => setCurrentStep(1)}>
                   1. Services
@@ -242,7 +259,7 @@ export default function App() {
                 </span>
               </div>
 
-              {/* STEP 1: Services */}
+              {/* STEP 1 */}
               {currentStep === 1 && (
                 <div>
                   {SERVICES.map((s) => {
@@ -274,7 +291,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* STEP 2: Professional */}
+              {/* STEP 2 */}
               {currentStep === 2 && (
                 <div>
                   <h3 className="font-serif" style={{ marginBottom: '14px' }}>Select Stylist</h3>
@@ -309,7 +326,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* STEP 3: Time & Date */}
+              {/* STEP 3 */}
               {currentStep === 3 && (
                 <div>
                   <h3 className="font-serif" style={{ marginBottom: '14px' }}>Select Date & Time Slot</h3>
@@ -356,7 +373,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* STEP 4: Confirm */}
+              {/* STEP 4 */}
               {currentStep === 4 && (
                 <form onSubmit={handleBookingSubmit}>
                   <h3 className="font-serif" style={{ marginBottom: '14px' }}>Complete Reservation</h3>
@@ -427,7 +444,7 @@ export default function App() {
                       ← Back
                     </button>
                     <button type="submit" disabled={isSubmitting} className="confirm-action-btn">
-                      {isSubmitting ? 'Processing...' : `Confirm Reservation — $${selectedService.starting_price}`}
+                      {isSubmitting ? submittingStatusText : `Confirm Reservation — $${selectedService.starting_price}`}
                     </button>
                   </div>
                 </form>
@@ -474,7 +491,7 @@ export default function App() {
                   />
                 </div>
                 <button type="submit" disabled={isSubmitting} className="cancel-btn">
-                  {isSubmitting ? 'Processing...' : 'Cancel Reservation & Release Slot'}
+                  {isSubmitting ? submittingStatusText : 'Cancel Reservation & Release Slot'}
                 </button>
               </form>
             )}

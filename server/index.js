@@ -7,6 +7,14 @@ const { Pool } = require('pg');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Global process crash prevention
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Uncaught Exception:', err.message);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ Unhandled Rejection:', reason);
+});
+
 // Enable CORS Preflight Headers
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -21,57 +29,62 @@ app.use((req, res, next) => {
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-// Database Pool with 5-Second Timeout Protection
+// Database Pool with Safe Timeout & Memory Fallback
 let pool = null;
 if (process.env.DATABASE_URL) {
-  pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 10000,
-  });
-
-  pool.connect()
-    .then(async (client) => {
-      console.log('✅ PostgreSQL DB Connected.');
-      try {
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS appointments (
-            id SERIAL PRIMARY KEY,
-            cancellation_code VARCHAR(20) UNIQUE NOT NULL,
-            full_name VARCHAR(255) NOT NULL,
-            email VARCHAR(255) NOT NULL,
-            phone VARCHAR(50),
-            service_name VARCHAR(255) NOT NULL,
-            starting_price NUMERIC(10, 2) NOT NULL,
-            duration_minutes INT NOT NULL,
-            date VARCHAR(50) NOT NULL,
-            time VARCHAR(50) NOT NULL,
-            status VARCHAR(50) DEFAULT 'confirmed',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          );
-        `);
-        console.log('✅ Appointments table verified.');
-      } catch (tableErr) {
-        console.error('⚠️ Table verification notice:', tableErr.message);
-      } finally {
-        client.release();
-      }
-    })
-    .catch(err => {
-      console.error('⚠️ DB Connection notice (using in-memory store):', err.message);
-      pool = null;
+  try {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      connectionTimeoutMillis: 4000,
+      idleTimeoutMillis: 8000,
     });
+
+    pool.connect()
+      .then(async (client) => {
+        console.log('✅ PostgreSQL DB Connected.');
+        try {
+          await client.query(`
+            CREATE TABLE IF NOT EXISTS appointments (
+              id SERIAL PRIMARY KEY,
+              cancellation_code VARCHAR(20) UNIQUE NOT NULL,
+              full_name VARCHAR(255) NOT NULL,
+              email VARCHAR(255) NOT NULL,
+              phone VARCHAR(50),
+              service_name VARCHAR(255) NOT NULL,
+              starting_price NUMERIC(10, 2) NOT NULL,
+              duration_minutes INT NOT NULL,
+              date VARCHAR(50) NOT NULL,
+              time VARCHAR(50) NOT NULL,
+              status VARCHAR(50) DEFAULT 'confirmed',
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+          `);
+          console.log('✅ Appointments table verified.');
+        } catch (tableErr) {
+          console.error('⚠️ Table query notice:', tableErr.message);
+        } finally {
+          client.release();
+        }
+      })
+      .catch(err => {
+        console.error('⚠️ DB Connection notice (falling back to memory):', err.message);
+        pool = null;
+      });
+  } catch (err) {
+    console.error('⚠️ DB Pool Init error:', err.message);
+    pool = null;
+  }
 }
 
 const inMemoryAppointments = [];
 
-// Health Endpoints
+// Health Check Endpoints
 app.get('/', (req, res) => res.status(200).send('Le Salon NYC Backend Active'));
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/api/health', (req, res) => res.status(200).send('OK'));
 
-// Asynchronous Non-Blocking Brevo Email Function
+// Non-Blocking Brevo Email Dispatcher
 function sendBrevoEmailAsync({ to, subject, htmlContent }) {
   setTimeout(() => {
     const apiKey = process.env.BREVO_API_KEY;
@@ -79,7 +92,7 @@ function sendBrevoEmailAsync({ to, subject, htmlContent }) {
     const adminEmail = process.env.ADMIN_EMAIL || process.env.SALON_NOTIFICATION_EMAIL || senderEmail;
 
     if (!apiKey) {
-      console.error('❌ BREVO ERROR: BREVO_API_KEY is not set.');
+      console.error('❌ BREVO ERROR: BREVO_API_KEY environment variable missing.');
       return;
     }
 
@@ -112,14 +125,14 @@ function sendBrevoEmailAsync({ to, subject, htmlContent }) {
       res.on('data', chunk => body += chunk);
       res.on('end', () => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
-          console.log(`✅ Brevo notification delivered to ${to}`);
+          console.log(`✅ Brevo email delivered to ${to}`);
         } else {
           console.error(`❌ Brevo API Error [HTTP ${res.statusCode}]:`, body);
         }
       });
     });
 
-    req.on('error', (err) => console.error('❌ Brevo Network Error:', err.message));
+    req.on('error', (err) => console.error('❌ Brevo Request Error:', err.message));
     req.write(payload);
     req.end();
   }, 0);
@@ -128,7 +141,7 @@ function sendBrevoEmailAsync({ to, subject, htmlContent }) {
 // ROUTE 1: GET BOOKED SLOTS
 app.get('/api/booked-slots', async (req, res) => {
   const { date } = req.query;
-  if (!date) return res.status(400).json({ error: 'Date query parameter required.' });
+  if (!date) return res.status(400).json({ error: 'Date parameter required.' });
 
   try {
     let bookedTimes = [];
@@ -192,7 +205,7 @@ app.post('/api/appointments', async (req, res) => {
         const dbRes = await pool.query(queryText, values);
         newAppointment.id = dbRes.rows[0].id;
       } catch (dbErr) {
-        console.error('⚠️ DB Insert notice (saved to memory):', dbErr.message);
+        console.error('⚠️ DB Insert fallback:', dbErr.message);
         newAppointment.id = Date.now().toString();
         inMemoryAppointments.push(newAppointment);
       }
@@ -215,14 +228,12 @@ app.post('/api/appointments', async (req, res) => {
       </div>
     `;
 
-    // Fire email asynchronously in background
     sendBrevoEmailAsync({
       to: email,
       subject: `Reservation Confirmed — Le Salon NYC (${cancellation_code})`,
       htmlContent: emailHtml,
     });
 
-    // Send HTTP 200 immediately
     return res.status(200).json({
       success: true,
       status: 'confirmed',
@@ -278,18 +289,19 @@ app.post('/api/cancel', async (req, res) => {
       return res.status(404).json({ error: 'No active reservation found matching those details.' });
     }
 
-    const emailHtml = `
+    const cancelEmailHtml = `
       <div style="font-family: Arial, sans-serif; padding: 24px; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e8e6e1; border-radius: 8px;">
         <h2 style="color: #b91c1c; margin-top: 0;">Le Salon NYC — Reservation Canceled</h2>
         <p>Dear <strong>${apt.full_name}</strong>,</p>
         <p>Your reservation (Code: <strong>${cancellation_code}</strong>) for <strong>${apt.service_name}</strong> on <strong>${apt.date} at ${apt.time}</strong> has been canceled.</p>
+        <p style="font-size: 0.85rem; color: #666;">This time slot has been released back into our active availability.</p>
       </div>
     `;
 
     sendBrevoEmailAsync({
       to: email,
       subject: `Reservation Canceled — Le Salon NYC (${cancellation_code})`,
-      htmlContent: htmlContent,
+      htmlContent: cancelEmailHtml,
     });
 
     return res.status(200).json({
@@ -302,4 +314,4 @@ app.post('/api/cancel', async (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Le Salon NYC Server active on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 Le Salon NYC Server running on port ${PORT}`));
