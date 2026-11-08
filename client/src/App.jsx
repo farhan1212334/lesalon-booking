@@ -25,11 +25,20 @@ const STYLISTS_DATA = [
   { id: 'ricardo', name: 'Ricardo', title: 'Senior Color Specialist' }
 ];
 
-// Helper: Check Salon Operating Hours & Generate Slots
-function getDaySchedule(dateString) {
-  if (!dateString) return { closed: false, maxHour: 20, slots: [] };
+// Time Helper: Format minutes into 12-hour string (e.g. 600 -> "10:00 AM")
+function formatMinutesTo12H(minutes) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  const mStr = m < 10 ? `0${m}` : m;
+  return `${h12}:${mStr} ${ampm}`;
+}
+
+// Generate Start & End Time Slots based on Total Service Duration & Salon Hours
+function generateStartAndEndSlots(dateString, totalDurationMinutes) {
+  if (!dateString) return { closed: false, slots: [] };
   
-  // Date parsing safety
   const parts = dateString.split('-');
   const selectedDate = new Date(parts[0], parts[1] - 1, parts[2]);
   const dayOfWeek = selectedDate.getDay(); // 0 = Sun, 6 = Sat
@@ -38,45 +47,54 @@ function getDaySchedule(dateString) {
     return { closed: true, reason: 'Sunday Closed', slots: [] };
   }
 
-  const startHour = 10;
-  const endHour = dayOfWeek === 6 ? 18 : 20; // Sat = 6 PM (18), Mon-Fri = 8 PM (20)
+  const startHourMins = 10 * 60; // 10:00 AM
+  const closingHourMins = (dayOfWeek === 6 ? 18 : 20) * 60; // Sat = 6 PM (18:00), Mon-Fri = 8 PM (20:00)
 
   const slots = [];
-  let currentMinutes = startHour * 60;
-  const closingMinutes = endHour * 60;
+  let currentMins = startHourMins;
 
-  while (currentMinutes + 45 <= closingMinutes) {
-    const h = Math.floor(currentMinutes / 60);
-    const m = currentMinutes % 60;
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    const h12 = h % 12 || 12;
-    const timeStr = `${h12}:${m === 0 ? '00' : m} ${ampm}`;
-    slots.push(timeStr);
-    currentMinutes += 30;
+  while (currentMins + totalDurationMinutes <= closingHourMins) {
+    const startTimeStr = formatMinutesTo12H(currentMins);
+    const endTimeStr = formatMinutesTo12H(currentMins + totalDurationMinutes);
+    
+    slots.push({
+      start: startTimeStr,
+      end: endTimeStr,
+      label: `${startTimeStr} – ${endTimeStr}`,
+      duration: totalDurationMinutes
+    });
+
+    currentMins += 30; // 30-minute interval increments
   }
 
-  return { closed: false, maxHour: endHour, slots };
+  return { closed: false, slots };
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('book'); // 'book' | 'manage'
+  const [activeTab, setActiveTab] = useState('book');
   const [step, setStep] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('All');
   
-  // Selection States
-  const [selectedService, setSelectedService] = useState(SERVICES_DATA[0]);
+  // Multi-Service Selection Array
+  const [selectedServices, setSelectedServices] = useState([SERVICES_DATA[0]]);
   const [selectedStylist, setSelectedStylist] = useState(STYLISTS_DATA[0]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   
-  const dayInfo = getDaySchedule(selectedDate);
-  const [selectedTime, setSelectedTime] = useState(dayInfo.slots[0] || '10:00 AM');
-  
+  // Calculate Combined Totals
+  const totalDuration = selectedServices.reduce((sum, s) => sum + s.duration, 0);
+  const totalPrice = selectedServices.reduce((sum, s) => sum + (s.price || 0), 0);
+  const hasConsultationService = selectedServices.some(s => s.price === null);
+
+  // Dynamic Slot Generation based on combined duration
+  const scheduleInfo = generateStartAndEndSlots(selectedDate, totalDuration);
+  const [selectedSlotObj, setSelectedSlotObj] = useState(scheduleInfo.slots[0] || null);
+
   // Form State
   const [guest, setGuest] = useState({ fullName: '', email: '', phone: '', notes: '' });
   const [policyAccepted, setPolicyAccepted] = useState(false);
   const [validationError, setValidationError] = useState('');
   
-  // Completed Bookings Mock Storage
+  // Real-time Mock Booking State
   const [mockBookings, setMockBookings] = useState([]);
   const [activeConfirmation, setActiveConfirmation] = useState(null);
 
@@ -85,17 +103,28 @@ export default function App() {
   const [cancelEmailInput, setCancelEmailInput] = useState('');
   const [cancelFeedback, setCancelFeedback] = useState(null);
 
-  // Categories list
   const categories = ['All', 'Haircuts & Styling', 'Color Services', 'Highlights', 'Treatments & Perms', 'Specialized Consultations'];
 
   const filteredServices = categoryFilter === 'All' 
     ? SERVICES_DATA 
     : SERVICES_DATA.filter(s => s.category === categoryFilter);
 
+  // Toggle multi-service selection
+  const toggleService = (service) => {
+    const exists = selectedServices.some(s => s.id === service.id);
+    if (exists) {
+      if (selectedServices.length > 1) {
+        setSelectedServices(selectedServices.filter(s => s.id !== service.id));
+      }
+    } else {
+      setSelectedServices([...selectedServices, service]);
+    }
+  };
+
   const handleBookingConfirm = (e) => {
     e.preventDefault();
     if (!policyAccepted) {
-      setValidationError('Please review and check the Le Salon NYC Policies agreement to proceed.');
+      setValidationError('Please review and check the Le Salon NYC Terms & Policies to confirm.');
       return;
     }
 
@@ -107,12 +136,13 @@ export default function App() {
       guestName: guest.fullName,
       guestEmail: guest.email,
       guestPhone: guest.phone,
-      serviceName: selectedService.name,
-      priceDisplay: selectedService.price ? `$${selectedService.price} ${selectedService.priceSuffix}` : 'Upon Consultation',
+      servicesList: selectedServices.map(s => s.name).join(', '),
+      totalPriceDisplay: hasConsultationService ? `$${totalPrice} + Consultation Services` : `$${totalPrice}`,
+      totalDuration,
       stylistName: selectedStylist.name,
       date: selectedDate,
-      time: selectedTime,
-      notes: guest.notes,
+      timeLabel: selectedSlotObj ? selectedSlotObj.label : '10:00 AM',
+      startTime: selectedSlotObj ? selectedSlotObj.start : '10:00 AM',
       status: 'Confirmed'
     };
 
@@ -120,29 +150,39 @@ export default function App() {
     setActiveConfirmation(newBooking);
   };
 
+  // Real-time Cancellation: Marks booking status as 'Canceled' to immediately free slot
   const handleCancelSearch = (e) => {
     e.preventDefault();
     setCancelFeedback(null);
 
+    const codeClean = cancelCodeInput.trim().toUpperCase();
+    const emailClean = cancelEmailInput.trim().toLowerCase();
+
     const foundIdx = mockBookings.findIndex(
-      b => b.code === cancelCodeInput.trim().toUpperCase() && 
-           b.guestEmail.toLowerCase() === cancelEmailInput.trim().toLowerCase() &&
+      b => b.code === codeClean && 
+           b.guestEmail.toLowerCase() === emailClean &&
            b.status === 'Confirmed'
     );
 
     if (foundIdx !== -1) {
       const updated = [...mockBookings];
-      updated[foundIdx].status = 'Canceled';
+      updated[foundIdx].status = 'Canceled'; // Slot becomes free in real-time
       setMockBookings(updated);
-      setCancelFeedback({ success: true, message: `Reservation ${cancelCodeInput.toUpperCase()} has been successfully canceled and the time slot released.` });
+      setCancelFeedback({
+        success: true,
+        message: `Reservation ${codeClean} canceled successfully! The time slot (${updated[foundIdx].date} at ${updated[foundIdx].timeLabel}) has been released back into real-time availability.`
+      });
     } else {
-      setCancelFeedback({ success: false, message: 'No active reservation found matching those details. Please check your reference code and email.' });
+      setCancelFeedback({
+        success: false,
+        message: 'No active reservation found matching that Reference Code and Email.'
+      });
     }
   };
 
   return (
     <div>
-      {/* Navigation Header */}
+      {/* Header */}
       <header className="app-header">
         <div className="header-container">
           <div className="brand-block">
@@ -167,7 +207,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Container */}
+      {/* Main Wrapper */}
       <main className="main-wrapper">
         {activeTab === 'book' ? (
           activeConfirmation ? (
@@ -176,29 +216,29 @@ export default function App() {
               <div style={{ fontSize: '3rem', color: '#059669', marginBottom: '12px' }}>✓</div>
               <h2 className="font-serif" style={{ fontSize: '1.6rem', marginBottom: '8px' }}>Reservation Request Received</h2>
               <p style={{ color: '#666', fontSize: '0.88rem', marginBottom: '24px' }}>
-                A confirmation summary has been logged for <strong>{activeConfirmation.guestEmail}</strong>.
+                A confirmation summary has been sent to <strong>{activeConfirmation.guestEmail}</strong>.
               </p>
 
-              <div style={{ background: '#faf9f5', border: '1px solid #e7e5e4', borderRadius: '12px', padding: '20px', textAlign: 'left', marginBottom: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #efece6' }}>
-                  <span style={{ color: '#78716c', fontSize: '0.85rem' }}>Reference Code:</span>
-                  <strong style={{ fontFamily: 'monospace', fontSize: '1.15rem', color: '#c59b27' }}>{activeConfirmation.code}</strong>
+              <div style={{ background: '#faf9f5', border: '1px solid #e7e5e4', borderRadius: '14px', padding: '20px', textAlign: 'left', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #efece6' }}>
+                  <span style={{ color: '#78716c', fontSize: '0.88rem' }}>Reference Code:</span>
+                  <strong style={{ fontFamily: 'monospace', fontSize: '1.2rem', color: '#c59b27' }}>{activeConfirmation.code}</strong>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #efece6' }}>
-                  <span style={{ color: '#78716c', fontSize: '0.85rem' }}>Service:</span>
-                  <strong style={{ fontSize: '0.88rem' }}>{activeConfirmation.serviceName}</strong>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #efece6' }}>
+                  <span style={{ color: '#78716c', fontSize: '0.88rem' }}>Selected Services:</span>
+                  <strong style={{ fontSize: '0.88rem', maxWidth: '60%', textAlign: 'right' }}>{activeConfirmation.servicesList}</strong>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #efece6' }}>
-                  <span style={{ color: '#78716c', fontSize: '0.85rem' }}>Price:</span>
-                  <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{activeConfirmation.priceDisplay}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #efece6' }}>
+                  <span style={{ color: '#78716c', fontSize: '0.88rem' }}>Total Duration:</span>
+                  <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{activeConfirmation.totalDuration} Mins</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #efece6' }}>
-                  <span style={{ color: '#78716c', fontSize: '0.85rem' }}>Stylist:</span>
-                  <span style={{ fontSize: '0.88rem' }}>{activeConfirmation.stylistName}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #efece6' }}>
+                  <span style={{ color: '#78716c', fontSize: '0.88rem' }}>Total Estimate:</span>
+                  <span style={{ fontSize: '0.88rem', fontWeight: 700 }}>{activeConfirmation.totalPriceDisplay}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
-                  <span style={{ color: '#78716c', fontSize: '0.85rem' }}>Date & Time:</span>
-                  <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{activeConfirmation.date} at {activeConfirmation.time}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
+                  <span style={{ color: '#78716c', fontSize: '0.88rem' }}>Schedule Window:</span>
+                  <span style={{ fontSize: '0.88rem', fontWeight: 700 }}>{activeConfirmation.date} ({activeConfirmation.timeLabel})</span>
                 </div>
               </div>
 
@@ -212,26 +252,41 @@ export default function App() {
               <div className="stepper-container">
                 <div className={`step-item ${step === 1 ? 'active' : step > 1 ? 'completed' : ''}`} onClick={() => setStep(1)}>
                   <div className="step-badge">{step > 1 ? '✓' : '1'}</div>
-                  <span>Service</span>
+                  <span>1. Services ({selectedServices.length})</span>
                 </div>
                 <div className={`step-item ${step === 2 ? 'active' : step > 2 ? 'completed' : ''}`} onClick={() => setStep(2)}>
                   <div className="step-badge">{step > 2 ? '✓' : '2'}</div>
-                  <span>Stylist</span>
+                  <span>2. Stylist</span>
                 </div>
                 <div className={`step-item ${step === 3 ? 'active' : step > 3 ? 'completed' : ''}`} onClick={() => setStep(3)}>
                   <div className="step-badge">{step > 3 ? '✓' : '3'}</div>
-                  <span>Date & Time</span>
+                  <span>3. Time Slots</span>
                 </div>
                 <div className={`step-item ${step === 4 ? 'active' : ''}`} onClick={() => setStep(4)}>
                   <div className="step-badge">4</div>
-                  <span>Confirm</span>
+                  <span>4. Confirm</span>
                 </div>
               </div>
 
-              {/* STEP 1: Select Service */}
+              {/* STEP 1: Multi-Service Selection */}
               {step === 1 && (
                 <div>
-                  {/* Category Filter Pills */}
+                  <div className="summary-drawer">
+                    <div>
+                      <div style={{ fontSize: '0.82rem', opacity: 0.8 }}>Selected Services ({selectedServices.length})</div>
+                      <div className="summary-tags">
+                        {selectedServices.map(s => (
+                          <span key={s.id} className="summary-tag">{s.name} ({s.duration}m)</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>${totalPrice} {hasConsultationService ? '+' : ''}</div>
+                      <div style={{ fontSize: '0.78rem', color: '#c59b27' }}>⏱ {totalDuration} Mins Total</div>
+                    </div>
+                  </div>
+
+                  {/* Category Pills */}
                   <div className="category-pills">
                     {categories.map((cat) => (
                       <button
@@ -244,14 +299,14 @@ export default function App() {
                     ))}
                   </div>
 
-                  {/* Services List */}
+                  {/* Service Cards List */}
                   {filteredServices.map((service) => {
-                    const isSelected = selectedService.id === service.id;
+                    const isSelected = selectedServices.some(s => s.id === service.id);
                     return (
-                      <div key={service.id} className="service-card">
+                      <div key={service.id} className={`service-card ${isSelected ? 'selected' : ''}`}>
                         <div className="service-details">
                           <span className="service-title">{service.name}</span>
-                          <span className="service-sub">⏱ approx. {service.duration} Mins • {service.category}</span>
+                          <span className="service-sub">⏱ {service.duration} Mins • {service.category}</span>
                         </div>
                         <div className="service-action">
                           <span className="service-price">
@@ -259,9 +314,9 @@ export default function App() {
                           </span>
                           <button
                             className={`select-btn ${isSelected ? 'selected' : ''}`}
-                            onClick={() => setSelectedService(service)}
+                            onClick={() => toggleService(service)}
                           >
-                            {isSelected ? '✓ Selected' : 'Select'}
+                            {isSelected ? '✓ Added' : '+ Add'}
                           </button>
                         </div>
                       </div>
@@ -270,16 +325,16 @@ export default function App() {
 
                   <div className="action-row">
                     <button className="btn-primary" onClick={() => setStep(2)}>
-                      Continue to Stylist Selection →
+                      Continue with {selectedServices.length} Service{selectedServices.length > 1 ? 's' : ''} ({totalDuration} Mins) →
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* STEP 2: Select Stylist */}
+              {/* STEP 2: Stylist Selection */}
               {step === 2 && (
                 <div>
-                  <h3 className="font-serif" style={{ marginBottom: '16px', fontSize: '1.2rem' }}>Select Preferred Stylist</h3>
+                  <h3 className="font-serif" style={{ marginBottom: '16px', fontSize: '1.25rem' }}>Select Preferred Stylist</h3>
 
                   <div className="grid-2">
                     {STYLISTS_DATA.map((stylist) => {
@@ -292,8 +347,8 @@ export default function App() {
                           onClick={() => setSelectedStylist(stylist)}
                         >
                           <div>
-                            <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{stylist.name}</div>
-                            <div style={{ fontSize: '0.78rem', color: '#78716c' }}>{stylist.title}</div>
+                            <div style={{ fontWeight: 600, fontSize: '0.98rem' }}>{stylist.name}</div>
+                            <div style={{ fontSize: '0.8rem', color: '#78716c' }}>{stylist.title}</div>
                           </div>
                           <button className={`select-btn ${isSelected ? 'selected' : ''}`}>
                             {isSelected ? 'Selected' : 'Select'}
@@ -314,10 +369,10 @@ export default function App() {
                 </div>
               )}
 
-              {/* STEP 3: Select Date & Dynamic Hours Time Slots */}
+              {/* STEP 3: Date & Start/End Time Slots */}
               {step === 3 && (
                 <div>
-                  <h3 className="font-serif" style={{ marginBottom: '16px', fontSize: '1.2rem' }}>Select Date & Time</h3>
+                  <h3 className="font-serif" style={{ marginBottom: '16px', fontSize: '1.25rem' }}>Select Schedule Window</h3>
 
                   <div className="card-box">
                     <div className="form-field">
@@ -329,32 +384,41 @@ export default function App() {
                         value={selectedDate}
                         onChange={(e) => {
                           setSelectedDate(e.target.value);
-                          const sched = getDaySchedule(e.target.value);
-                          if (sched.slots.length > 0) setSelectedTime(sched.slots[0]);
+                          const sched = generateStartAndEndSlots(e.target.value, totalDuration);
+                          if (sched.slots.length > 0) setSelectedSlotObj(sched.slots[0]);
                         }}
                       />
                     </div>
 
-                    {dayInfo.closed ? (
+                    {scheduleInfo.closed ? (
                       <div className="status-alert alert-warning">
-                        <strong>Salon Closed:</strong> Le Salon NYC is closed on Sundays. Please select a date from Monday through Saturday.
+                        <strong>Salon Closed:</strong> Le Salon NYC is closed on Sundays. Please select a date between Monday and Saturday.
                       </div>
                     ) : (
                       <div>
-                        <label className="form-label" style={{ marginTop: '12px' }}>
-                          Available Hours ({selectedDate.includes('-') && new Date(selectedDate.split('-')[0], selectedDate.split('-')[1]-1, selectedDate.split('-')[2]).getDay() === 6 ? 'Saturday: 10 AM – 6 PM' : 'Mon – Fri: 10 AM – 8 PM'})
+                        <label className="form-label" style={{ marginTop: '14px' }}>
+                          Available Windows for {totalDuration} Mins Combined Duration ({selectedDate.includes('-') && new Date(selectedDate.split('-')[0], selectedDate.split('-')[1]-1, selectedDate.split('-')[2]).getDay() === 6 ? 'Saturday: 10 AM – 6 PM' : 'Mon – Fri: 10 AM – 8 PM'})
                         </label>
-                        <div className="grid-slots">
-                          {dayInfo.slots.map((timeStr) => {
-                            const isSelected = selectedTime === timeStr;
+
+                        <div className="grid-slots-wide">
+                          {scheduleInfo.slots.map((slot) => {
+                            const isBooked = mockBookings.some(
+                              b => b.date === selectedDate && b.startTime === slot.start && b.status === 'Confirmed'
+                            );
+                            const isSelected = selectedSlotObj && selectedSlotObj.start === slot.start;
+
                             return (
                               <button
-                                key={timeStr}
+                                key={slot.start}
                                 type="button"
-                                className={`slot-btn ${isSelected ? 'selected' : ''}`}
-                                onClick={() => setSelectedTime(timeStr)}
+                                disabled={isBooked}
+                                className={`slot-btn-wide ${isSelected ? 'selected' : ''}`}
+                                onClick={() => setSelectedSlotObj(slot)}
                               >
-                                {timeStr}
+                                <span>{slot.label}</span>
+                                <span className="slot-duration-text">
+                                  {isBooked ? 'Already Reserved' : `Full ${totalDuration} min appointment`}
+                                </span>
                               </button>
                             );
                           })}
@@ -369,7 +433,7 @@ export default function App() {
                     </button>
                     <button
                       className="btn-primary"
-                      disabled={dayInfo.closed}
+                      disabled={scheduleInfo.closed || !selectedSlotObj}
                       onClick={() => setStep(4)}
                     >
                       Continue to Guest Details →
@@ -378,21 +442,24 @@ export default function App() {
                 </div>
               )}
 
-              {/* STEP 4: Confirm Details & Salon Policies */}
+              {/* STEP 4: Review & Policies */}
               {step === 4 && (
                 <form onSubmit={handleBookingConfirm}>
-                  <h3 className="font-serif" style={{ marginBottom: '16px', fontSize: '1.2rem' }}>Review & Confirm Reservation</h3>
+                  <h3 className="font-serif" style={{ marginBottom: '16px', fontSize: '1.25rem' }}>Review & Complete Reservation</h3>
 
                   <div className="card-box">
-                    <div className="card-box-header">Selected Reservation Summary</div>
-                    <p style={{ fontSize: '0.88rem', marginBottom: '4px' }}>
-                      <strong>Service:</strong> {selectedService.name} ({selectedService.price ? `$${selectedService.price} ${selectedService.priceSuffix}` : 'Upon Consultation'})
+                    <div className="card-box-header">Reservation Summary</div>
+                    <p style={{ fontSize: '0.9rem', marginBottom: '6px' }}>
+                      <strong>Services:</strong> {selectedServices.map(s => s.name).join(', ')}
                     </p>
-                    <p style={{ fontSize: '0.88rem', marginBottom: '4px' }}>
+                    <p style={{ fontSize: '0.9rem', marginBottom: '6px' }}>
+                      <strong>Combined Duration & Cost:</strong> {totalDuration} Mins (${totalPrice} {hasConsultationService ? '+ Consultation' : ''})
+                    </p>
+                    <p style={{ fontSize: '0.9rem', marginBottom: '6px' }}>
                       <strong>Stylist:</strong> {selectedStylist.name}
                     </p>
-                    <p style={{ fontSize: '0.88rem' }}>
-                      <strong>Schedule:</strong> {selectedDate} at {selectedTime}
+                    <p style={{ fontSize: '0.9rem' }}>
+                      <strong>Time Window:</strong> {selectedDate} ({selectedSlotObj?.label})
                     </p>
                   </div>
 
@@ -435,33 +502,32 @@ export default function App() {
                       <label className="form-label">Special Requests / Hair Notes</label>
                       <textarea
                         className="form-textarea"
-                        placeholder="Mention any allergies, previous treatments, or preferences..."
+                        placeholder="Mention any hair goals, allergies, or special requests..."
                         value={guest.notes}
                         onChange={(e) => setGuest({ ...guest, notes: e.target.value })}
                       />
                     </div>
                   </div>
 
-                  {/* Comprehensive Salon Policies */}
                   <div className="card-box">
-                    <div className="card-box-header">Le Salon NYC Policies</div>
+                    <div className="card-box-header">Le Salon NYC Terms & Policies</div>
                     
                     <div className="policy-list">
                       <div className="policy-item">
                         <span>•</span>
-                        <span><strong>24-Hour Notice:</strong> Cancellations or rescheduling must be requested at least 24 hours prior to your scheduled time slot.</span>
+                        <span><strong>24-Hour Notice:</strong> Free cancellations or appointment adjustments can be completed up to 24 hours prior using your reference code.</span>
                       </div>
                       <div className="policy-item">
                         <span>•</span>
-                        <span><strong>Punctuality:</strong> Please arrive 5–10 minutes prior to your appointment. Late arrivals exceeding 15 minutes may require service adjustments or rescheduling.</span>
+                        <span><strong>Punctuality Policy:</strong> Please arrive 5–10 minutes before your scheduled start time. Arrivals after 15 minutes may require rescheduling.</span>
                       </div>
                       <div className="policy-item">
                         <span>•</span>
-                        <span><strong>Consultation Services:</strong> For Makeup & Keratin Protein Treatments, our concierge team will reach out directly to confirm duration & final estimate.</span>
+                        <span><strong>Special Consultations:</strong> Final pricing for consultations (Makeup & Keratin Treatments) will be confirmed in salon prior to service.</span>
                       </div>
                       <div className="policy-item">
                         <span>•</span>
-                        <span><strong>Organic Products:</strong> We exclusively use non-toxic, eco-certified organic hair formulas.</span>
+                        <span><strong>Exclusively Organic:</strong> We exclusively use certified organic, non-toxic hair products.</span>
                       </div>
                     </div>
 
@@ -469,12 +535,12 @@ export default function App() {
                       <input
                         type="checkbox"
                         id="policyCheck"
-                        style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                        style={{ width: '20px', height: '20px', cursor: 'pointer' }}
                         checked={policyAccepted}
                         onChange={(e) => setPolicyAccepted(e.target.checked)}
                       />
-                      <label htmlFor="policyCheck" style={{ fontSize: '0.82rem', cursor: 'pointer', color: '#1c1917' }}>
-                        I have read and agree to the <strong>Le Salon NYC Reservation & Cancellation Terms</strong>.
+                      <label htmlFor="policyCheck" style={{ fontSize: '0.85rem', cursor: 'pointer', color: '#1c1917' }}>
+                        I agree to the <strong>Le Salon NYC Reservation Policies</strong>.
                       </label>
                     </div>
                   </div>
@@ -490,7 +556,7 @@ export default function App() {
                       ← Back
                     </button>
                     <button type="submit" className="btn-primary">
-                      Confirm Reservation
+                      Confirm Reservation — ${totalPrice}
                     </button>
                   </div>
                 </form>
@@ -502,7 +568,7 @@ export default function App() {
           <div className="card-box">
             <h3 className="font-serif" style={{ marginBottom: '8px', fontSize: '1.3rem' }}>Manage / Cancel Reservation</h3>
             <p style={{ fontSize: '0.85rem', color: '#78716c', marginBottom: '20px' }}>
-              Lookup your existing booking using your 6-character reference code and registered email.
+              Enter your Reference Code and Email to release your reservation slot in real-time.
             </p>
 
             {cancelFeedback && (
@@ -537,7 +603,7 @@ export default function App() {
               </div>
 
               <button type="submit" className="btn-danger" style={{ marginTop: '12px' }}>
-                Cancel Reservation & Release Time Slot
+                Cancel Reservation & Release Slot Immediately
               </button>
             </form>
           </div>
