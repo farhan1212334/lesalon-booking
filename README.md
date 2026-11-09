@@ -11,9 +11,14 @@ Add these environment variables to the Vercel project:
 - `SENDER_EMAIL` (required for booking emails): verified sender email address.
 - `ADMIN_EMAIL` (required for booking emails): salon notification address.
 - `ADMIN_PIN` (required for the admin panel): exactly six digits. Sign-in is locked for 15 minutes after five incorrect attempts from the same client.
+- `CRON_SECRET` (required for appointment reminders): a long random secret used to authorize Vercel Cron requests.
 - `REPLY_TO_EMAIL` (optional): reply-to address.
 
 Do not set `VITE_API_BASE_URL`; the client calls `/api` on its own domain. Redeploy after updating the root directory or environment variables.
+Generate `CRON_SECRET` locally with
+`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`,
+then add it to the **Production** environment of the Vercel project serving the
+live app. Keep the value private.
 
 The Admin tab requires the `ADMIN_PIN` environment variable (exactly six digits) and uses
 database-backed sessions in an HTTP-only, same-site cookie. PIN failures are
@@ -21,6 +26,14 @@ rate-limited using PostgreSQL. Signed-in admins can browse appointments in a
 day/week calendar or the existing paginated list, search and filter records,
 and cancel appointments stored in PostgreSQL. Admin cancellations use the
 existing customer cancellation email flow.
+Customers who accept the reservation policies receive one transactional email
+reminder on the day before a confirmed appointment. Vercel runs the reminder
+job daily at 14:00 UTC (approximately 9:00 or 10:00 a.m. in New York, depending
+on daylight saving time); this daily schedule is compatible with Vercel Hobby.
+The job tracks successful reminders in PostgreSQL; unsuccessful deliveries
+remain eligible for another attempt on a later run while the appointment is
+still upcoming. Set `CRON_SECRET` in the production Vercel environment and
+redeploy to enable reminders.
 
 Confirmed appointments reserve their time interval across all stylists. Booking
 requests for the same date are serialized in PostgreSQL before checking for

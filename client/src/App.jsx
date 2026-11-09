@@ -818,6 +818,10 @@ export default function App() {
                       </div>
                       <div className="policy-item">
                         <span>•</span>
+                        <span><strong>Appointment Reminder:</strong> We will send one reminder email the day before your appointment.</span>
+                      </div>
+                      <div className="policy-item">
+                        <span>•</span>
                         <span><strong>Punctuality Policy:</strong> Please arrive 5–10 minutes prior to start time. Late arrivals exceeding 15 minutes may require rescheduling.</span>
                       </div>
                       <div className="policy-item">

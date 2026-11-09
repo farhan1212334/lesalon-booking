@@ -13,6 +13,7 @@ const ADMIN_SESSION_COOKIE = 'salon_admin_session';
 const ADMIN_SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
 const ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const ADMIN_LOGIN_MAX_FAILURES = 5;
+const APPOINTMENT_REMINDER_LOCK_KEY = 1280267665;
 const STYLISTS = [
   { id: 'ashraf', name: 'Ashraf' },
 ];
@@ -324,6 +325,33 @@ async function sendBookingEmails(appointment) {
   };
 }
 
+async function sendAppointmentReminder(appointment) {
+  const customerName = escapeHtml(appointment.fullName);
+  const serviceNames = escapeHtml(appointment.serviceNames.join(', '));
+  const stylistName = escapeHtml(appointment.stylistName);
+  const date = escapeHtml(appointment.date);
+  const startTime = escapeHtml(appointment.startTime);
+  const endTime = escapeHtml(appointment.endTime);
+  const referenceCode = escapeHtml(appointment.referenceCode);
+  const htmlContent = `
+    <div style="font-family:Arial,sans-serif;color:#333;max-width:600px;margin:auto;padding:24px">
+      <h2>Le Salon NYC — Appointment Reminder</h2>
+      <p>Hello ${customerName},</p>
+      <p>This is a reminder of your upcoming appointment:</p>
+      <p><strong>Services:</strong> ${serviceNames}<br>
+      <strong>Stylist:</strong> ${stylistName}<br>
+      <strong>Date:</strong> ${date}<br>
+      <strong>Time:</strong> ${startTime} – ${endTime} (New York time)<br>
+      <strong>Reference code:</strong> ${referenceCode}</p>
+      <p>Please arrive 5–10 minutes before your appointment. To cancel or make changes, use the reference code and email address associated with your reservation.</p>
+    </div>`;
+  return sendBrevoEmail({
+    to: appointment.email,
+    subject: `Appointment reminder — ${appointment.referenceCode}`,
+    htmlContent,
+  });
+}
+
 function formatAppointment(row) {
   return {
     id: row.id,
@@ -429,8 +457,11 @@ async function initializeDatabase() {
       status VARCHAR(16) NOT NULL DEFAULT 'confirmed'
         CHECK (status IN ('confirmed', 'canceled')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      reminder_sent_at TIMESTAMPTZ,
       CHECK (start_minute >= 0 AND end_minute > start_minute AND end_minute <= 1440)
     );
+    ALTER TABLE booking_appointments
+      ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ;
     CREATE INDEX IF NOT EXISTS booking_appointments_date_status_idx
       ON booking_appointments (appointment_date, status);
     CREATE TABLE IF NOT EXISTS admin_login_attempts (
@@ -869,6 +900,83 @@ app.post(['/api/admin/appointments/:id/cancel', '/api/admin-cancel'], requireAdm
   } catch (error) {
     console.error('Admin appointment cancellation failed:', error.message);
     return res.status(500).json({ error: 'The reservation could not be canceled. Please try again.' });
+  }
+});
+
+app.get('/api/cron/appointment-reminders', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const expectedSecret = process.env.CRON_SECRET;
+  if (!expectedSecret) {
+    console.error('Appointment reminder cron is not configured: CRON_SECRET is missing.');
+    return res.status(503).json({ error: 'Appointment reminders are not configured.' });
+  }
+  const authorization = req.get('authorization') || '';
+  const suppliedSecret = authorization.startsWith('Bearer ')
+    ? authorization.slice('Bearer '.length)
+    : '';
+  const expected = Buffer.from(expectedSecret);
+  const supplied = Buffer.from(suppliedSecret);
+  if (expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) {
+    return res.status(401).json({ error: 'Unauthorized.' });
+  }
+
+  let client;
+  let lockAcquired = false;
+  try {
+    client = await pool.connect();
+    const lock = await client.query(
+      'SELECT pg_try_advisory_lock($1, 1) AS locked;',
+      [APPOINTMENT_REMINDER_LOCK_KEY]
+    );
+    lockAcquired = lock.rows[0].locked;
+    if (!lockAcquired) {
+      return res.status(200).json({ success: true, skipped: true, reason: 'A reminder run is already in progress.' });
+    }
+
+    const due = await client.query(
+      `SELECT * FROM booking_appointments
+       WHERE status = 'confirmed'
+         AND reminder_sent_at IS NULL
+         AND appointment_date BETWEEN $1 AND $2
+         AND ((appointment_date + start_minute * INTERVAL '1 minute') AT TIME ZONE $3) > NOW()
+       ORDER BY appointment_date, start_minute;`,
+      [getSalonDate(), addDays(getSalonDate(), 1), TIME_ZONE]
+    );
+
+    let sent = 0;
+    let failed = 0;
+    for (const row of due.rows) {
+      const appointment = formatAppointment(row);
+      try {
+        await sendAppointmentReminder(appointment);
+        const updated = await client.query(
+          `UPDATE booking_appointments
+           SET reminder_sent_at = NOW()
+           WHERE id = $1 AND status = 'confirmed' AND reminder_sent_at IS NULL;`,
+          [appointment.id]
+        );
+        if (updated.rowCount === 1) sent += 1;
+        else console.warn(`Reminder delivery state was not updated for ${appointment.referenceCode}.`);
+      } catch (error) {
+        failed += 1;
+        console.error(`Appointment reminder failed for ${appointment.referenceCode}:`, error.message);
+      }
+    }
+    return res.status(failed ? 502 : 200).json({ success: failed === 0, sent, failed });
+  } catch (error) {
+    console.error('Appointment reminder run failed:', error.message);
+    return res.status(503).json({ error: 'Appointment reminders are temporarily unavailable.' });
+  } finally {
+    if (client) {
+      if (lockAcquired) {
+        try {
+          await client.query('SELECT pg_advisory_unlock($1, 1);', [APPOINTMENT_REMINDER_LOCK_KEY]);
+        } catch (error) {
+          console.error('Could not release appointment reminder lock:', error.message);
+        }
+      }
+      client.release();
+    }
   }
 });
 
