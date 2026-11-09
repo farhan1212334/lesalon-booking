@@ -24,8 +24,11 @@ The Admin tab requires the `ADMIN_PIN` environment variable (exactly six digits)
 database-backed sessions in an HTTP-only, same-site cookie. PIN failures are
 rate-limited using PostgreSQL. Signed-in admins can browse appointments in a
 day/week calendar or the existing paginated list, search and filter records,
-and cancel appointments stored in PostgreSQL. Admin cancellations use the
-existing customer cancellation email flow.
+and search customer records by name, email, or phone to view their appointment
+history grouped by email address. Admins can add, edit, and archive services in
+the database-backed catalog; catalog changes affect new bookings, while
+existing appointments retain their saved service, price, and duration. Admin
+cancellations use the existing customer cancellation email flow.
 Customers who accept the reservation policies receive one transactional email
 reminder on the day before a confirmed appointment. Vercel runs the reminder
 job daily at 14:00 UTC (approximately 9:00 or 10:00 a.m. in New York, depending

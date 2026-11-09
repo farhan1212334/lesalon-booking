@@ -150,6 +150,480 @@ function AppointmentCard({ appointment, onCancel, isCanceling }) {
   );
 }
 
+function formatHistoryDate(dateString) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${dateString}T00:00:00.000Z`));
+}
+
+function CustomerHistoryView() {
+  const [search, setSearch] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [customers, setCustomers] = useState([]);
+  const [customerOffset, setCustomerOffset] = useState(0);
+  const [customersHaveMore, setCustomersHaveMore] = useState(false);
+  const [customersLoading, setCustomersLoading] = useState(false);
+  const [customersError, setCustomersError] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [appointments, setAppointments] = useState([]);
+  const [appointmentOffset, setAppointmentOffset] = useState(0);
+  const [appointmentsHaveMore, setAppointmentsHaveMore] = useState(false);
+  const [appointmentsLoading, setAppointmentsLoading] = useState(false);
+  const [appointmentsError, setAppointmentsError] = useState('');
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setCustomerOffset(0);
+      setSelectedCustomer(null);
+      setAppliedSearch(search.trim());
+    }, 250);
+    return () => clearTimeout(timeoutId);
+  }, [search]);
+
+  useEffect(() => {
+    if (appliedSearch.length < 2) {
+      setCustomers([]);
+      setCustomersHaveMore(false);
+      setCustomersLoading(false);
+      setCustomersError('');
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      search: appliedSearch,
+      limit: String(PAGE_SIZE),
+      offset: String(customerOffset),
+    });
+    setCustomersLoading(true);
+    setCustomersError('');
+    setCustomers([]);
+    adminRequest(`/api/admin-customers?${params}`, { signal: controller.signal })
+      .then((result) => {
+        setCustomers(result.customers);
+        setCustomersHaveMore(result.hasMore);
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') setCustomersError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCustomersLoading(false);
+      });
+    return () => controller.abort();
+  }, [appliedSearch, customerOffset]);
+
+  useEffect(() => {
+    if (!selectedCustomer) {
+      setAppointments([]);
+      setAppointmentsHaveMore(false);
+      setAppointmentsLoading(false);
+      setAppointmentsError('');
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      email: selectedCustomer.email,
+      limit: String(PAGE_SIZE),
+      offset: String(appointmentOffset),
+    });
+    setAppointmentsLoading(true);
+    setAppointmentsError('');
+    setAppointments([]);
+    adminRequest(`/api/admin-customer-appointments?${params}`, { signal: controller.signal })
+      .then((result) => {
+        setAppointments(result.appointments);
+        setAppointmentsHaveMore(result.hasMore);
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') setAppointmentsError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAppointmentsLoading(false);
+      });
+    return () => controller.abort();
+  }, [selectedCustomer, appointmentOffset]);
+
+  return (
+    <div className="admin-customer-history">
+      <div className="card-box admin-customer-search">
+        <label className="form-label" htmlFor="adminCustomerSearch">Search customers</label>
+        <input
+          id="adminCustomerSearch"
+          className="form-input"
+          type="search"
+          placeholder="Enter at least 2 characters of name, email, or phone"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <p>Appointment history is grouped by customer email address.</p>
+      </div>
+
+      {customersError && <div className="status-alert alert-warning" role="alert">{customersError}</div>}
+      {customersLoading && <p className="admin-loading" role="status">Searching customers…</p>}
+      {!customersLoading && !customersError && appliedSearch.length < 2 && (
+        <div className="card-box admin-empty">Search by customer name, email, or phone to view appointment history.</div>
+      )}
+      {!customersLoading && !customersError && appliedSearch.length >= 2 && customers.length === 0 && (
+        <div className="card-box admin-empty">No customers match this search.</div>
+      )}
+
+      {customers.length > 0 && (
+        <div className="admin-customer-results">
+          <div className="admin-customer-list" aria-label="Customer search results">
+            {customers.map((customer) => (
+              <button
+                type="button"
+                key={customer.email}
+                className={`admin-customer-result ${selectedCustomer?.email === customer.email ? 'selected' : ''}`}
+                aria-pressed={selectedCustomer?.email === customer.email}
+                onClick={() => {
+                  setSelectedCustomer(customer);
+                  setAppointmentOffset(0);
+                }}
+              >
+                <strong>{customer.fullName}</strong>
+                <span>{customer.email}</span>
+                <span>{customer.phone}</span>
+                <span>{customer.appointmentCount} appointment{customer.appointmentCount === 1 ? '' : 's'} · Last visit {formatHistoryDate(customer.lastAppointment)}</span>
+              </button>
+            ))}
+          </div>
+          <div className="admin-pagination">
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={customerOffset === 0 || customersLoading}
+              onClick={() => {
+                setSelectedCustomer(null);
+                setCustomerOffset((current) => Math.max(0, current - PAGE_SIZE));
+              }}
+            >
+              Previous customers
+            </button>
+            <span>Showing {customerOffset + 1}–{customerOffset + customers.length}</span>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={!customersHaveMore || customersLoading}
+              onClick={() => {
+                setSelectedCustomer(null);
+                setCustomerOffset((current) => current + PAGE_SIZE);
+              }}
+            >
+              Next customers
+            </button>
+          </div>
+        </div>
+      )}
+
+      {selectedCustomer && (
+        <section className="admin-customer-detail" aria-label={`Appointment history for ${selectedCustomer.fullName}`}>
+          <div className="admin-customer-detail-heading">
+            <div>
+              <h3 className="font-serif">{selectedCustomer.fullName}</h3>
+              <p>
+                <a href={`mailto:${selectedCustomer.email}`}>{selectedCustomer.email}</a>
+                {' · '}
+                <a href={`tel:${selectedCustomer.phone}`}>{selectedCustomer.phone}</a>
+              </p>
+            </div>
+            <button type="button" className="btn-secondary" onClick={() => setSelectedCustomer(null)}>
+              Close history
+            </button>
+          </div>
+          {appointmentsError && <div className="status-alert alert-warning" role="alert">{appointmentsError}</div>}
+          {appointmentsLoading && <p className="admin-loading" role="status">Loading appointment history…</p>}
+          {!appointmentsLoading && !appointmentsError && appointments.length === 0 && (
+            <div className="card-box admin-empty">No appointments were found for this customer.</div>
+          )}
+          {!appointmentsLoading && appointments.length > 0 && (
+            <>
+              <div className="admin-customer-appointments">
+                {appointments.map((appointment) => {
+                  const upcoming = appointment.status === 'confirmed' && appointment.date >= getSalonToday();
+                  const statusLabel = appointment.status === 'canceled'
+                    ? 'Canceled'
+                    : upcoming ? 'Confirmed · Upcoming' : 'Confirmed · Past';
+                  return (
+                    <article className="admin-customer-appointment" key={appointment.id}>
+                      <div>
+                        <strong>{formatHistoryDate(appointment.date)} · {appointment.startTime}–{appointment.endTime}</strong>
+                        <span className={`admin-status ${appointment.status}`}>{statusLabel}</span>
+                      </div>
+                      <p>{appointment.serviceNames.join(', ')}</p>
+                      <p>{appointment.stylistName} · Reference {appointment.referenceCode}</p>
+                      <p>Estimate: ${appointment.price}{appointment.consultationRequired ? ' + consultation' : ''}</p>
+                    </article>
+                  );
+                })}
+              </div>
+              <div className="admin-pagination">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={appointmentOffset === 0 || appointmentsLoading}
+                  onClick={() => setAppointmentOffset((current) => Math.max(0, current - PAGE_SIZE))}
+                >
+                  Previous appointments
+                </button>
+                <span>Showing {appointmentOffset + 1}–{appointmentOffset + appointments.length}</span>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={!appointmentsHaveMore || appointmentsLoading}
+                  onClick={() => setAppointmentOffset((current) => current + PAGE_SIZE)}
+                >
+                  Next appointments
+                </button>
+              </div>
+            </>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function ServiceManagementView() {
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [form, setForm] = useState({
+    name: '',
+    category: '',
+    price: '',
+    priceSuffix: '',
+    duration: '60',
+    active: true,
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
+    adminRequest('/api/admin-services', { signal: controller.signal })
+      .then((result) => setServices(result.services))
+      .catch((requestError) => {
+        if (requestError.name !== 'AbortError') setError(requestError.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [reloadKey]);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setFormError('');
+    setForm({
+      name: '',
+      category: '',
+      price: '',
+      priceSuffix: '',
+      duration: '60',
+      active: true,
+    });
+  };
+
+  const editService = (service) => {
+    setEditingId(service.id);
+    setFormError('');
+    setForm({
+      name: service.name,
+      category: service.category,
+      price: service.price === null ? '' : String(service.price),
+      priceSuffix: service.priceSuffix,
+      duration: String(service.duration),
+      active: service.active,
+    });
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setFormError('');
+    setFeedback('');
+    const payload = {
+      ...form,
+      price: form.price === '' ? null : Number(form.price),
+      duration: Number(form.duration),
+    };
+    try {
+      await adminRequest(editingId ? `/api/admin-services/${editingId}` : '/api/admin-services', {
+        method: editingId ? 'PUT' : 'POST',
+        body: JSON.stringify(payload),
+      });
+      setFeedback(editingId
+        ? 'Service updated. The change applies to new bookings; existing appointments keep their saved details.'
+        : 'Service added to the customer booking menu.');
+      resetForm();
+      setReloadKey((key) => key + 1);
+    } catch (requestError) {
+      setFormError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleArchive = async (service) => {
+    if (!window.confirm(`Archive "${service.name}"? It will no longer appear in new customer bookings. Existing appointments will remain unchanged.`)) {
+      return;
+    }
+    setError('');
+    setFeedback('');
+    try {
+      await adminRequest(`/api/admin-services/${service.id}/archive`, { method: 'PATCH' });
+      setFeedback('Service archived. Existing appointments keep their saved details.');
+      if (editingId === service.id) resetForm();
+      setReloadKey((key) => key + 1);
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  };
+
+  return (
+    <div className="admin-service-management">
+      <div className="card-box admin-service-form-card">
+        <h3 className="font-serif">{editingId ? 'Edit service' : 'Add service'}</h3>
+        <p>Changes affect new bookings only. Existing appointments retain their saved service, price, and duration.</p>
+        {formError && <div className="status-alert alert-warning" role="alert">{formError}</div>}
+        <form className="admin-service-form" onSubmit={handleSubmit}>
+          <div className="admin-service-form-grid">
+            <div className="form-field">
+              <label className="form-label" htmlFor="serviceName">Service name</label>
+              <input
+                id="serviceName"
+                className="form-input"
+                value={form.name}
+                maxLength={120}
+                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                required
+              />
+            </div>
+            <div className="form-field">
+              <label className="form-label" htmlFor="serviceCategory">Category</label>
+              <input
+                id="serviceCategory"
+                className="form-input"
+                value={form.category}
+                maxLength={60}
+                onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
+                required
+              />
+            </div>
+            <div className="form-field">
+              <label className="form-label" htmlFor="servicePrice">Starting price (leave blank for consultation)</label>
+              <input
+                id="servicePrice"
+                className="form-input"
+                type="number"
+                min="0"
+                max="100000"
+                step="0.01"
+                value={form.price}
+                onChange={(event) => setForm((current) => ({ ...current, price: event.target.value }))}
+              />
+            </div>
+            <div className="form-field">
+              <label className="form-label" htmlFor="servicePriceSuffix">Price label (optional)</label>
+              <input
+                id="servicePriceSuffix"
+                className="form-input"
+                placeholder="e.g. and up"
+                maxLength={40}
+                value={form.priceSuffix}
+                onChange={(event) => setForm((current) => ({ ...current, priceSuffix: event.target.value }))}
+              />
+            </div>
+            <div className="form-field">
+              <label className="form-label" htmlFor="serviceDuration">Appointment duration (minutes)</label>
+              <input
+                id="serviceDuration"
+                className="form-input"
+                type="number"
+                min="15"
+                max="600"
+                step="15"
+                value={form.duration}
+                onChange={(event) => setForm((current) => ({ ...current, duration: event.target.value }))}
+                required
+              />
+            </div>
+          </div>
+          {editingId && (
+            <label className="admin-service-active">
+              <input
+                type="checkbox"
+                checked={form.active}
+                onChange={(event) => setForm((current) => ({ ...current, active: event.target.checked }))}
+              />
+              Available to customers for new bookings
+            </label>
+          )}
+          <div className="admin-service-form-actions">
+            <button type="submit" className="btn-primary" disabled={saving}>
+              {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add service'}
+            </button>
+            {editingId && (
+              <button type="button" className="btn-secondary" disabled={saving} onClick={resetForm}>
+                Cancel edit
+              </button>
+            )}
+          </div>
+        </form>
+      </div>
+
+      {feedback && <div className="status-alert alert-success" role="status">{feedback}</div>}
+      {error && <div className="status-alert alert-warning" role="alert">{error}</div>}
+      {loading && <p className="admin-loading" role="status">Loading service catalog…</p>}
+      {!loading && !error && services.length === 0 && (
+        <div className="card-box admin-empty">No services are configured.</div>
+      )}
+      {!loading && !error && services.length > 0 && (
+        <div className="admin-service-list">
+          {services.map((service) => (
+            <article className={`admin-service-item ${service.active ? '' : 'archived'}`} key={service.id}>
+              <div className="admin-service-item-details">
+                <div className="admin-service-item-heading">
+                  <h4>{service.name}</h4>
+                  <span className={`admin-status ${service.active ? 'confirmed' : 'canceled'}`}>
+                    {service.active ? 'Active' : 'Archived'}
+                  </span>
+                </div>
+                <p>{service.category}</p>
+                <p>
+                  {service.price === null ? 'Upon consultation' : `$${service.price}${service.priceSuffix ? ` ${service.priceSuffix}` : ''}`}
+                  {' · '}
+                  {service.duration} minutes
+                </p>
+              </div>
+              <div className="admin-service-item-actions">
+                <button type="button" className="btn-secondary" onClick={() => editService(service)}>
+                  Edit
+                </button>
+                {service.active && (
+                  <button type="button" className="btn-danger" onClick={() => handleArchive(service)}>
+                    Archive
+                  </button>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AppointmentCalendar({
   appointments,
   mode,
@@ -254,6 +728,7 @@ export default function AdminPanel() {
   const [pin, setPin] = useState('');
   const [authError, setAuthError] = useState('');
   const [appointments, setAppointments] = useState([]);
+  const [adminSection, setAdminSection] = useState('appointments');
   const [statusFilter, setStatusFilter] = useState('confirmed');
   const [viewMode, setViewMode] = useState('calendar');
   const [calendarMode, setCalendarMode] = useState('week');
@@ -297,7 +772,7 @@ export default function AdminPanel() {
   }, [search]);
 
   useEffect(() => {
-    if (authState !== 'authenticated') return undefined;
+    if (authState !== 'authenticated' || adminSection !== 'appointments') return undefined;
     const controller = new AbortController();
     const calendarStart = calendarMode === 'day' ? calendarDate : getWeekStart(calendarDate);
     const calendarEnd = calendarMode === 'day' ? calendarDate : shiftDate(calendarStart, 6);
@@ -332,7 +807,7 @@ export default function AdminPanel() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [authState, statusFilter, appliedSearch, dateFilter, offset, reloadKey, viewMode, calendarMode, calendarDate]);
+  }, [authState, adminSection, statusFilter, appliedSearch, dateFilter, offset, reloadKey, viewMode, calendarMode, calendarDate]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -356,6 +831,7 @@ export default function AdminPanel() {
     try {
       await adminRequest('/api/admin-logout', { method: 'POST', body: '{}' });
       setAppointments([]);
+      setAdminSection('appointments');
       setAuthState('signed-out');
       setFeedback('');
     } catch (error) {
@@ -427,12 +903,52 @@ export default function AdminPanel() {
     <section className="admin-panel">
       <div className="admin-toolbar">
         <div>
-          <h2 className="font-serif">Appointments</h2>
-          <p>Manage reservations saved in the booking database.</p>
+          <h2 className="font-serif">
+            {adminSection === 'customers' ? 'Customer history' : adminSection === 'services' ? 'Service catalog' : 'Appointments'}
+          </h2>
+          <p>
+            {adminSection === 'customers'
+              ? 'Search customer records and review their appointment history.'
+              : adminSection === 'services'
+                ? 'Manage the service menu shown to customers when they book.'
+                : 'Manage reservations saved in the booking database.'}
+          </p>
         </div>
         <button type="button" className="btn-secondary admin-logout" onClick={handleLogout}>Sign out</button>
       </div>
 
+      <div className="admin-module-nav" role="group" aria-label="Admin section">
+        <button
+          type="button"
+          className={adminSection === 'appointments' ? 'active' : ''}
+          aria-pressed={adminSection === 'appointments'}
+          onClick={() => setAdminSection('appointments')}
+        >
+          Appointments
+        </button>
+        <button
+          type="button"
+          className={adminSection === 'customers' ? 'active' : ''}
+          aria-pressed={adminSection === 'customers'}
+          onClick={() => setAdminSection('customers')}
+        >
+          Customers
+        </button>
+        <button
+          type="button"
+          className={adminSection === 'services' ? 'active' : ''}
+          aria-pressed={adminSection === 'services'}
+          onClick={() => setAdminSection('services')}
+        >
+          Services
+        </button>
+      </div>
+
+      {adminSection === 'customers' && <CustomerHistoryView />}
+      {adminSection === 'services' && <ServiceManagementView />}
+
+      {adminSection === 'appointments' && (
+        <>
       <div className="admin-view-toolbar" aria-label="Appointment view">
         <div className="admin-view-toggle" role="group" aria-label="Choose appointment view">
           <button
@@ -596,6 +1112,8 @@ export default function AdminPanel() {
               Next
             </button>
           </div>
+        </>
+      )}
         </>
       )}
     </section>

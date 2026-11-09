@@ -21,22 +21,22 @@ const STYLIST_NAMES = {
   ashraf: 'Ashraf',
   ricardo: 'Ricardo',
 };
-const SERVICES = [
-  { id: 1, name: 'Shampoo haircut and blow dry', price: 75, duration: 75 },
-  { id: 2, name: 'Shampoo and blow dry', price: 40, duration: 45 },
-  { id: 3, name: 'Barber Haircut', price: 40, duration: 45 },
-  { id: 4, name: 'Single process color', price: 100, duration: 75 },
-  { id: 5, name: 'Single process color and blow dry', price: 130, duration: 120 },
-  { id: 6, name: 'Single process and full head of highlights', price: 330, duration: 150 },
-  { id: 7, name: 'Single process with full head of highlights and blow dry', price: 380, duration: 180 },
-  { id: 8, name: 'Full head highlights', price: 250, duration: 120 },
-  { id: 9, name: 'Full head highlights and blow dry', price: 290, duration: 150 },
-  { id: 10, name: 'Half head highlights', price: 180, duration: 90 },
-  { id: 11, name: 'Half head highlights and blow dry', price: 220, duration: 120 },
-  { id: 12, name: 'Hair treatment', price: 35, duration: 45 },
-  { id: 13, name: 'Organic Perm', price: 150, duration: 120 },
-  { id: 14, name: 'Makeup', price: null, duration: 60 },
-  { id: 15, name: 'Keratin Protein Treatment', price: null, duration: 120 },
+const SERVICE_SEEDS = [
+  { id: 1, name: 'Shampoo haircut and blow dry', category: 'Haircuts & Styling', price: 75, priceSuffix: 'and up', duration: 75 },
+  { id: 2, name: 'Shampoo and blow dry', category: 'Haircuts & Styling', price: 40, priceSuffix: 'and up', duration: 45 },
+  { id: 3, name: 'Barber Haircut', category: 'Haircuts & Styling', price: 40, priceSuffix: '', duration: 45 },
+  { id: 4, name: 'Single process color', category: 'Color Services', price: 100, priceSuffix: 'and up', duration: 75 },
+  { id: 5, name: 'Single process color and blow dry', category: 'Color Services', price: 130, priceSuffix: 'and up', duration: 120 },
+  { id: 6, name: 'Single process and full head of highlights', category: 'Color & Highlights', price: 330, priceSuffix: 'and up', duration: 150 },
+  { id: 7, name: 'Single process with full head of highlights and blow dry', category: 'Color & Highlights', price: 380, priceSuffix: 'and up', duration: 180 },
+  { id: 8, name: 'Full head highlights', category: 'Highlights', price: 250, priceSuffix: '', duration: 120 },
+  { id: 9, name: 'Full head highlights and blow dry', category: 'Highlights', price: 290, priceSuffix: '', duration: 150 },
+  { id: 10, name: 'Half head highlights', category: 'Highlights', price: 180, priceSuffix: '', duration: 90 },
+  { id: 11, name: 'Half head highlights and blow dry', category: 'Highlights', price: 220, priceSuffix: '', duration: 120 },
+  { id: 12, name: 'Hair treatment', category: 'Treatments & Perms', price: 35, priceSuffix: '', duration: 45 },
+  { id: 13, name: 'Organic Perm', category: 'Treatments & Perms', price: 150, priceSuffix: 'and up', duration: 120 },
+  { id: 14, name: 'Makeup', category: 'Specialized Consultations', price: null, priceSuffix: 'upon consultation', duration: 60 },
+  { id: 15, name: 'Keratin Protein Treatment', category: 'Specialized Consultations', price: null, priceSuffix: 'upon consultation', duration: 120 },
 ];
 
 app.use(express.json({ limit: '20kb' }));
@@ -153,14 +153,14 @@ function validateSlot(dateString, startTime, duration) {
   return null;
 }
 
-function getServiceSelection(serviceIds) {
-  if (!Array.isArray(serviceIds) || serviceIds.length === 0 || serviceIds.length > SERVICES.length) {
+function getServiceSelection(serviceIds, catalog) {
+  if (!Array.isArray(serviceIds) || serviceIds.length === 0 || serviceIds.length > catalog.length) {
     return null;
   }
   if (serviceIds.some((id) => !Number.isInteger(id)) || new Set(serviceIds).size !== serviceIds.length) {
     return null;
   }
-  const services = serviceIds.map((id) => SERVICES.find((service) => service.id === id));
+  const services = serviceIds.map((id) => catalog.find((service) => service.id === id));
   if (services.some((service) => !service)) return null;
   return {
     services,
@@ -374,6 +374,50 @@ function formatAppointment(row) {
   };
 }
 
+function formatService(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    price: row.price === null ? null : Number(row.price),
+    priceSuffix: row.price_suffix,
+    duration: row.duration_minutes,
+    active: row.active,
+  };
+}
+
+function normalizeService(body) {
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const category = typeof body.category === 'string' ? body.category.trim() : '';
+  const priceSuffix = typeof body.priceSuffix === 'string' ? body.priceSuffix.trim() : '';
+  const price = body.price === '' || body.price === null ? null : Number(body.price);
+  const duration = Number(body.duration);
+  if (name.length < 2 || name.length > 120) {
+    return { error: 'Service name must be between 2 and 120 characters.' };
+  }
+  if (category.length < 2 || category.length > 60) {
+    return { error: 'Service category must be between 2 and 60 characters.' };
+  }
+  if (price !== null && (!Number.isFinite(price) || price < 0 || price > 100000)) {
+    return { error: 'Enter a valid service price from $0 to $100,000, or leave it blank for a consultation.' };
+  }
+  if (priceSuffix.length > 40) {
+    return { error: 'Price label must be 40 characters or fewer.' };
+  }
+  if (!Number.isInteger(duration) || duration < 15 || duration > 600) {
+    return { error: 'Service duration must be from 15 to 600 minutes.' };
+  }
+  return {
+    value: {
+      name,
+      category,
+      price,
+      priceSuffix,
+      duration,
+    },
+  };
+}
+
 function getAdminPin() {
   const pin = process.env.ADMIN_PIN;
   return typeof pin === 'string' && /^\d{6}$/.test(pin) ? pin : null;
@@ -460,6 +504,17 @@ async function initializeDatabase() {
       reminder_sent_at TIMESTAMPTZ,
       CHECK (start_minute >= 0 AND end_minute > start_minute AND end_minute <= 1440)
     );
+    CREATE TABLE IF NOT EXISTS booking_services (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(120) NOT NULL,
+      category VARCHAR(60) NOT NULL,
+      price NUMERIC(10, 2),
+      price_suffix VARCHAR(40) NOT NULL DEFAULT '',
+      duration_minutes INTEGER NOT NULL CHECK (duration_minutes BETWEEN 15 AND 600),
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     ALTER TABLE booking_appointments
       ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ;
     CREATE INDEX IF NOT EXISTS booking_appointments_date_status_idx
@@ -478,6 +533,32 @@ async function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS admin_sessions_expires_at_idx
       ON admin_sessions (expires_at);
   `);
+  const seedValues = [];
+  const seedRows = SERVICE_SEEDS.map((service, index) => {
+    const firstParameter = index * 6 + 1;
+    seedValues.push(
+      service.id,
+      service.name,
+      service.category,
+      service.price,
+      service.priceSuffix,
+      service.duration
+    );
+    return `($${firstParameter}, $${firstParameter + 1}, $${firstParameter + 2}, $${firstParameter + 3}, $${firstParameter + 4}, $${firstParameter + 5})`;
+  });
+  await pool.query(
+    `INSERT INTO booking_services (id, name, category, price, price_suffix, duration_minutes)
+     VALUES ${seedRows.join(', ')}
+     ON CONFLICT (id) DO NOTHING;`,
+    seedValues
+  );
+  await pool.query(
+    `SELECT setval(
+      pg_get_serial_sequence('booking_services', 'id'),
+      GREATEST(COALESCE((SELECT MAX(id) FROM booking_services), 1), 1),
+      EXISTS (SELECT 1 FROM booking_services)
+    );`
+  );
   console.log('Connected to PostgreSQL; booking table is ready.');
 }
 
@@ -637,6 +718,179 @@ app.post(['/api/admin/logout', '/api/admin-logout'], async (req, res) => {
   return res.status(200).json({ authenticated: false });
 });
 
+app.get('/api/services', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const result = await pool.query(
+      `SELECT id, name, category, price, price_suffix, duration_minutes, active
+       FROM booking_services
+       WHERE active = TRUE
+       ORDER BY id;`
+    );
+    return res.status(200).json({ services: result.rows.map(formatService) });
+  } catch (error) {
+    console.error('Public service catalog query failed:', error.message);
+    return res.status(503).json({ error: 'The service menu is temporarily unavailable. Please try again.' });
+  }
+});
+
+app.get(['/api/admin/services', '/api/admin-services'], requireAdmin, async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const result = await pool.query(
+      `SELECT id, name, category, price, price_suffix, duration_minutes, active
+       FROM booking_services
+       ORDER BY active DESC, category, name, id;`
+    );
+    return res.status(200).json({ services: result.rows.map(formatService) });
+  } catch (error) {
+    console.error('Admin service catalog query failed:', error.message);
+    return res.status(503).json({ error: 'The service catalog is temporarily unavailable. Please try again.' });
+  }
+});
+
+app.post(['/api/admin/services', '/api/admin-services'], requireAdmin, async (req, res) => {
+  const normalized = normalizeService(req.body || {});
+  if (normalized.error) return res.status(400).json({ error: normalized.error });
+  try {
+    const { name, category, price, priceSuffix, duration } = normalized.value;
+    const result = await pool.query(
+      `INSERT INTO booking_services (name, category, price, price_suffix, duration_minutes)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, name, category, price, price_suffix, duration_minutes, active;`,
+      [name, category, price, priceSuffix, duration]
+    );
+    return res.status(201).json({ service: formatService(result.rows[0]) });
+  } catch (error) {
+    console.error('Admin service creation failed:', error.message);
+    return res.status(503).json({ error: 'The service could not be added. Please try again.' });
+  }
+});
+
+app.put(['/api/admin/services/:id', '/api/admin-services/:id'], requireAdmin, async (req, res) => {
+  const serviceId = req.params.id;
+  if (!/^\d+$/.test(serviceId) || !Number.isSafeInteger(Number(serviceId))) {
+    return res.status(400).json({ error: 'Choose a valid service.' });
+  }
+  const normalized = normalizeService(req.body || {});
+  if (normalized.error) return res.status(400).json({ error: normalized.error });
+  const active = typeof req.body.active === 'boolean' ? req.body.active : true;
+  try {
+    const { name, category, price, priceSuffix, duration } = normalized.value;
+    const result = await pool.query(
+      `UPDATE booking_services
+       SET name = $2, category = $3, price = $4, price_suffix = $5,
+           duration_minutes = $6, active = $7, updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, name, category, price, price_suffix, duration_minutes, active;`,
+      [serviceId, name, category, price, priceSuffix, duration, active]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'That service was not found.' });
+    return res.status(200).json({ service: formatService(result.rows[0]) });
+  } catch (error) {
+    console.error('Admin service update failed:', error.message);
+    return res.status(503).json({ error: 'The service could not be updated. Please try again.' });
+  }
+});
+
+app.patch(['/api/admin/services/:id/archive', '/api/admin-services/:id/archive'], requireAdmin, async (req, res) => {
+  const serviceId = req.params.id;
+  if (!/^\d+$/.test(serviceId) || !Number.isSafeInteger(Number(serviceId))) {
+    return res.status(400).json({ error: 'Choose a valid service.' });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE booking_services
+       SET active = FALSE, updated_at = NOW()
+       WHERE id = $1 AND active = TRUE
+       RETURNING id, name, category, price, price_suffix, duration_minutes, active;`,
+      [serviceId]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'That active service was not found.' });
+    return res.status(200).json({ service: formatService(result.rows[0]) });
+  } catch (error) {
+    console.error('Admin service archive failed:', error.message);
+    return res.status(503).json({ error: 'The service could not be archived. Please try again.' });
+  }
+});
+
+app.get(['/api/admin/customers', '/api/admin-customers'], requireAdmin, async (req, res) => {
+  const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+  const limit = Number(req.query.limit || 50);
+  const offset = Number(req.query.offset || 0);
+
+  if (search.length < 2 || search.length > 100) {
+    return res.status(400).json({ error: 'Enter between 2 and 100 characters to search customers.' });
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50 ||
+      !Number.isInteger(offset) || offset < 0) {
+    return res.status(400).json({ error: 'Choose a valid customer page.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT LOWER(email) AS email,
+              (ARRAY_AGG(full_name ORDER BY appointment_date DESC, start_minute DESC, id DESC))[1] AS full_name,
+              (ARRAY_AGG(phone ORDER BY appointment_date DESC, start_minute DESC, id DESC))[1] AS phone,
+              COUNT(*)::INTEGER AS appointment_count,
+              MAX(appointment_date)::TEXT AS last_appointment
+       FROM booking_appointments
+       WHERE full_name ILIKE $1 OR email ILIKE $1 OR phone ILIKE $1
+       GROUP BY LOWER(email)
+       ORDER BY MAX(appointment_date) DESC, LOWER(email)
+       LIMIT $2 OFFSET $3;`,
+      [`%${search}%`, limit + 1, offset]
+    );
+    const hasMore = result.rows.length > limit;
+    const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
+    return res.status(200).json({
+      customers: rows.map((row) => ({
+        email: row.email,
+        fullName: row.full_name,
+        phone: row.phone,
+        appointmentCount: row.appointment_count,
+        lastAppointment: row.last_appointment,
+      })),
+      hasMore,
+    });
+  } catch (error) {
+    console.error('Admin customer search failed:', error.message);
+    return res.status(503).json({ error: 'Customer history is temporarily unavailable. Please try again.' });
+  }
+});
+
+app.get(['/api/admin/customer-appointments', '/api/admin-customer-appointments'], requireAdmin, async (req, res) => {
+  const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
+  const limit = Number(req.query.limit || 25);
+  const offset = Number(req.query.offset || 0);
+  if (email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Choose a valid customer email address.' });
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50 ||
+      !Number.isInteger(offset) || offset < 0) {
+    return res.status(400).json({ error: 'Choose a valid appointment history page.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT * FROM booking_appointments
+       WHERE LOWER(email) = $1
+       ORDER BY appointment_date DESC, start_minute DESC, id DESC
+       LIMIT $2 OFFSET $3;`,
+      [email, limit + 1, offset]
+    );
+    const hasMore = result.rows.length > limit;
+    const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
+    return res.status(200).json({
+      appointments: rows.map(formatAppointment),
+      hasMore,
+    });
+  } catch (error) {
+    console.error('Admin customer appointment history query failed:', error.message);
+    return res.status(503).json({ error: 'Customer appointment history is temporarily unavailable. Please try again.' });
+  }
+});
+
 app.get(['/api/admin/appointments', '/api/admin-appointments'], requireAdmin, async (req, res) => {
   const status = typeof req.query.status === 'string' ? req.query.status : 'all';
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
@@ -769,18 +1023,23 @@ app.post('/api/appointments', async (req, res) => {
   if (body.acceptedPolicies !== true) {
     return res.status(400).json({ error: 'Please accept the reservation policies.' });
   }
-  const selection = getServiceSelection(body.serviceIds);
-  if (!selection) return res.status(400).json({ error: 'Choose one or more valid services.' });
+  if (!Array.isArray(body.serviceIds) || body.serviceIds.length === 0 ||
+      body.serviceIds.length > 100 ||
+      body.serviceIds.some((id) => !Number.isInteger(id)) ||
+      new Set(body.serviceIds).size !== body.serviceIds.length) {
+    return res.status(400).json({ error: 'Choose one or more valid services.' });
+  }
 
   const stylistId = body.stylistId;
   if (stylistId !== 'any' && !STYLISTS.some((stylist) => stylist.id === stylistId)) {
     return res.status(400).json({ error: 'Choose a valid stylist.' });
   }
   const { date, startTime } = body;
-  const slotError = validateSlot(date, startTime, selection.duration);
-  if (slotError) return res.status(400).json({ error: slotError });
-  const startMinute = parseTime(startTime);
-  const endMinute = startMinute + selection.duration;
+  const dateError = validateBookableDate(date);
+  if (dateError) return res.status(400).json({ error: dateError });
+  let selection;
+  let startMinute;
+  let endMinute;
   const candidates = stylistId === 'any'
     ? STYLISTS.map(({ id }) => id).sort()
     : [stylistId];
@@ -789,6 +1048,25 @@ app.post('/api/appointments', async (req, res) => {
     client = await pool.connect();
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1), 0);', [date]);
+    const catalogResult = await client.query(
+      `      SELECT id, name, category, price, price_suffix, duration_minutes, active
+      FROM booking_services
+      WHERE active = TRUE AND id = ANY($1::INTEGER[])
+      FOR SHARE;`,
+      [body.serviceIds]
+    );
+    selection = getServiceSelection(body.serviceIds, catalogResult.rows.map(formatService));
+    if (!selection) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'One or more selected services are no longer available. Refresh the service menu and try again.' });
+    }
+    const slotError = validateSlot(date, startTime, selection.duration);
+    if (slotError) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: slotError });
+    }
+    startMinute = parseTime(startTime);
+    endMinute = startMinute + selection.duration;
     const overlap = await client.query(
       `SELECT 1 FROM booking_appointments
        WHERE appointment_date = $1 AND status = 'confirmed'

@@ -50,25 +50,6 @@ function getDayOfWeek(dateString) {
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 }
 
-// Full Service Catalog & Pricing Menu (15 Items)
-const SERVICES_DATA = [
-  { id: 1, name: 'Shampoo haircut and blow dry', price: 75, priceSuffix: 'and up', duration: 75, category: 'Haircuts & Styling' },
-  { id: 2, name: 'Shampoo and blow dry', price: 40, priceSuffix: 'and up', duration: 45, category: 'Haircuts & Styling' },
-  { id: 3, name: 'Barber Haircut', price: 40, priceSuffix: '', duration: 45, category: 'Haircuts & Styling' },
-  { id: 4, name: 'Single process color', price: 100, priceSuffix: 'and up', duration: 75, category: 'Color Services' },
-  { id: 5, name: 'Single process color and blow dry', price: 130, priceSuffix: 'and up', duration: 120, category: 'Color Services' },
-  { id: 6, name: 'Single process and full head of highlights', price: 330, priceSuffix: 'and up', duration: 150, category: 'Color & Highlights' },
-  { id: 7, name: 'Single process with full head of highlights and blow dry', price: 380, priceSuffix: 'and up', duration: 180, category: 'Color & Highlights' },
-  { id: 8, name: 'Full head highlights', price: 250, priceSuffix: '', duration: 120, category: 'Highlights' },
-  { id: 9, name: 'Full head highlights and blow dry', price: 290, priceSuffix: '', duration: 150, category: 'Highlights' },
-  { id: 10, name: 'Half head highlights', price: 180, priceSuffix: '', duration: 90, category: 'Highlights' },
-  { id: 11, name: 'Half head highlights and blow dry', price: 220, priceSuffix: '', duration: 120, category: 'Highlights' },
-  { id: 12, name: 'Hair treatment', price: 35, priceSuffix: '', duration: 45, category: 'Treatments & Perms' },
-  { id: 13, name: 'Organic Perm', price: 150, priceSuffix: 'and up', duration: 120, category: 'Treatments & Perms' },
-  { id: 14, name: 'Makeup', price: null, priceSuffix: 'upon consultation', duration: 60, category: 'Specialized Consultations' },
-  { id: 15, name: 'Keratin Protein Treatment', price: null, priceSuffix: 'upon consultation', duration: 120, category: 'Specialized Consultations' }
-];
-
 const STYLISTS_DATA = [
   { id: 'any', name: 'Any Available Stylist', title: 'First available professional' },
   { id: 'ashraf', name: 'Ashraf', title: 'Master Stylist & Founder' }
@@ -131,11 +112,41 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('book'); // 'book' | 'manage'
   const [step, setStep] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('All');
+  const [services, setServices] = useState([]);
+  const [servicesLoading, setServicesLoading] = useState(true);
+  const [servicesError, setServicesError] = useState('');
+  const [servicesReloadKey, setServicesReloadKey] = useState(0);
   
   // Selection States
   const [selectedServices, setSelectedServices] = useState([]);
   const [selectedStylist, setSelectedStylist] = useState(STYLISTS_DATA[0]);
   const [selectedDate, setSelectedDate] = useState(getTodayStr());
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setServicesLoading(true);
+    setServicesError('');
+    apiRequest('/api/services', { signal: controller.signal })
+      .then((result) => {
+        setServices(result.services);
+        setCategoryFilter((current) =>
+          current === 'All' || result.services.some((service) => service.category === current)
+            ? current
+            : 'All'
+        );
+        setSelectedServices((current) => current.flatMap((selected) => {
+          const updated = result.services.find((service) => service.id === selected.id);
+          return updated ? [updated] : [];
+        }));
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') setServicesError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setServicesLoading(false);
+      });
+    return () => controller.abort();
+  }, [servicesReloadKey]);
   
   // Calculate Cumulative Totals
   const totalDuration = selectedServices.reduce((sum, s) => sum + s.duration, 0);
@@ -223,11 +234,11 @@ export default function App() {
   const [cancelFeedback, setCancelFeedback] = useState(null);
   const [isCanceling, setIsCanceling] = useState(false);
 
-  const categories = ['All', 'Haircuts & Styling', 'Color Services', 'Highlights', 'Treatments & Perms', 'Specialized Consultations'];
+  const categories = ['All', ...new Set(services.map((service) => service.category))];
 
   const filteredServices = categoryFilter === 'All' 
-    ? SERVICES_DATA 
-    : SERVICES_DATA.filter(s => s.category === categoryFilter);
+    ? services
+    : services.filter(s => s.category === categoryFilter);
 
   // Toggle Service Selection (Multi-select)
   const toggleService = (service) => {
@@ -541,21 +552,37 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Category Pills */}
-                  <div className="category-pills">
-                    {categories.map((cat) => (
+                  {servicesError && (
+                    <div className="status-alert alert-warning" role="alert">
+                      {servicesError}
                       <button
-                        key={cat}
-                        className={`cat-pill ${categoryFilter === cat ? 'active' : ''}`}
-                        onClick={() => setCategoryFilter(cat)}
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => setServicesReloadKey((key) => key + 1)}
                       >
-                        {cat}
+                        Retry loading services
                       </button>
-                    ))}
-                  </div>
+                    </div>
+                  )}
+                  {servicesLoading && <p className="admin-loading" role="status">Loading salon services…</p>}
+
+                  {/* Category Pills */}
+                  {!servicesError && !servicesLoading && (
+                    <div className="category-pills">
+                      {categories.map((cat) => (
+                        <button
+                          key={cat}
+                          className={`cat-pill ${categoryFilter === cat ? 'active' : ''}`}
+                          onClick={() => setCategoryFilter(cat)}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Services Menu */}
-                  {filteredServices.map((service) => {
+                  {!servicesError && filteredServices.map((service) => {
                     const isSelected = selectedServices.some(s => s.id === service.id);
                     return (
                       <div key={service.id} className={`service-card ${isSelected ? 'selected' : ''}`}>
@@ -565,7 +592,7 @@ export default function App() {
                         </div>
                         <div className="service-action">
                           <span className="service-price">
-                            {service.price ? `$${service.price}` : ''} {service.priceSuffix}
+                            {service.price !== null ? `$${service.price}` : ''} {service.priceSuffix}
                           </span>
                           <button
                             type="button"
@@ -583,7 +610,7 @@ export default function App() {
                     <button
                       type="button"
                       className="btn-primary"
-                      disabled={selectedServices.length === 0}
+                      disabled={selectedServices.length === 0 || servicesLoading || Boolean(servicesError)}
                       onClick={() => setStep(2)}
                     >
                       {selectedServices.length === 0
