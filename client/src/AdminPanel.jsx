@@ -71,7 +71,7 @@ export default function AdminPanel() {
   const [pin, setPin] = useState('');
   const [authError, setAuthError] = useState('');
   const [appointments, setAppointments] = useState([]);
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('confirmed');
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('');

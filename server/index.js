@@ -15,8 +15,11 @@ const ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const ADMIN_LOGIN_MAX_FAILURES = 5;
 const STYLISTS = [
   { id: 'ashraf', name: 'Ashraf' },
-  { id: 'ricardo', name: 'Ricardo' },
 ];
+const STYLIST_NAMES = {
+  ashraf: 'Ashraf',
+  ricardo: 'Ricardo',
+};
 const SERVICES = [
   { id: 1, name: 'Shampoo haircut and blow dry', price: 75, duration: 75 },
   { id: 2, name: 'Shampoo and blow dry', price: 40, duration: 45 },
@@ -335,7 +338,7 @@ function formatAppointment(row) {
     consultationRequired: row.consultation_required,
     duration: row.duration_minutes,
     stylistId: row.stylist_id,
-    stylistName: STYLISTS.find((stylist) => stylist.id === row.stylist_id)?.name || row.stylist_id,
+    stylistName: STYLIST_NAMES[row.stylist_id] || row.stylist_id,
     date: row.appointment_date,
     startTime: formatTime(row.start_minute),
     endTime: formatTime(row.end_minute),
@@ -686,11 +689,19 @@ async function availabilityHandler(req, res) {
     );
     const bookedSlots = schedule
       .filter((slot) => result.rows.some((appointment) =>
-        appointment.start_minute < slot.endMinute &&
-        appointment.end_minute > slot.startMinute
+        appointment.start_minute === slot.startMinute
       ))
       .map((slot) => slot.start);
-    return res.status(200).json({ bookedSlots });
+    const overlappingSlots = schedule
+      .filter((slot) =>
+        !bookedSlots.includes(slot.start) &&
+        result.rows.some((appointment) =>
+          appointment.start_minute < slot.endMinute &&
+          appointment.end_minute > slot.startMinute
+        )
+      )
+      .map((slot) => slot.start);
+    return res.status(200).json({ bookedSlots, overlappingSlots });
   } catch (error) {
     console.error('Availability query failed:', error.message);
     return res.status(503).json({ error: 'Availability is temporarily unavailable. Please try again.' });

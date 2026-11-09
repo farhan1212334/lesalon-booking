@@ -71,8 +71,7 @@ const SERVICES_DATA = [
 
 const STYLISTS_DATA = [
   { id: 'any', name: 'Any Available Stylist', title: 'First available professional' },
-  { id: 'ashraf', name: 'Ashraf', title: 'Master Stylist & Founder' },
-  { id: 'ricardo', name: 'Ricardo', title: 'Senior Color Specialist' }
+  { id: 'ashraf', name: 'Ashraf', title: 'Master Stylist & Founder' }
 ];
 
 // Helper: Convert Minutes to 12-Hour Time Format (e.g., 600 -> "10:00 AM")
@@ -146,7 +145,12 @@ export default function App() {
   // Time Slot Schedule Generator
   const scheduleInfo = generateStartAndEndSlots(selectedDate, totalDuration);
   const [selectedSlotObj, setSelectedSlotObj] = useState(scheduleInfo.slots[0] || null);
-  const [availability, setAvailability] = useState({ bookedSlots: [], loading: false, error: '' });
+  const [availability, setAvailability] = useState({
+    bookedSlots: [],
+    overlappingSlots: [],
+    loading: false,
+    error: '',
+  });
 
   useEffect(() => {
     setSelectedSlotObj(scheduleInfo.slots[0] || null);
@@ -154,17 +158,22 @@ export default function App() {
 
   useEffect(() => {
     if (totalDuration <= 0) {
-      setAvailability({ bookedSlots: [], loading: false, error: '' });
+      setAvailability({ bookedSlots: [], overlappingSlots: [], loading: false, error: '' });
       return undefined;
     }
 
     const controller = new AbortController();
-    setAvailability({ bookedSlots: [], loading: true, error: '' });
+    setAvailability({ bookedSlots: [], overlappingSlots: [], loading: true, error: '' });
     requestAvailability(selectedDate, totalDuration, selectedStylist.id, controller.signal)
-      .then((result) => setAvailability({ bookedSlots: result.bookedSlots, loading: false, error: '' }))
+      .then((result) => setAvailability({
+        bookedSlots: result.bookedSlots,
+        overlappingSlots: result.overlappingSlots,
+        loading: false,
+        error: '',
+      }))
       .catch((error) => {
         if (error.name !== 'AbortError') {
-          setAvailability({ bookedSlots: [], loading: false, error: error.message });
+          setAvailability({ bookedSlots: [], overlappingSlots: [], loading: false, error: error.message });
         }
       });
 
@@ -179,7 +188,12 @@ export default function App() {
       if (controller) controller.abort();
       controller = new AbortController();
       requestAvailability(selectedDate, totalDuration, selectedStylist.id, controller.signal)
-        .then((result) => setAvailability({ bookedSlots: result.bookedSlots, loading: false, error: '' }))
+        .then((result) => setAvailability({
+          bookedSlots: result.bookedSlots,
+          overlappingSlots: result.overlappingSlots,
+          loading: false,
+          error: '',
+        }))
         .catch((error) => {
           if (error.name !== 'AbortError') {
             setAvailability((current) => ({ ...current, loading: false, error: error.message }));
@@ -287,10 +301,16 @@ export default function App() {
       requestAvailability(selectedDate, totalDuration, selectedStylist.id)
         .then((availabilityResult) => setAvailability({
           bookedSlots: availabilityResult.bookedSlots,
+          overlappingSlots: availabilityResult.overlappingSlots,
           loading: false,
           error: '',
         }))
-        .catch((error) => setAvailability({ bookedSlots: [], loading: false, error: error.message }));
+        .catch((error) => setAvailability({
+          bookedSlots: [],
+          overlappingSlots: [],
+          loading: false,
+          error: error.message,
+        }));
       setActiveConfirmation({
         code: appointment.referenceCode,
         guestEmail: appointment.email,
@@ -307,9 +327,15 @@ export default function App() {
     } catch (error) {
       if (error.status === 409) {
         requestAvailability(selectedDate, totalDuration, selectedStylist.id)
-          .then((result) => setAvailability({ bookedSlots: result.bookedSlots, loading: false, error: '' }))
+          .then((result) => setAvailability({
+            bookedSlots: result.bookedSlots,
+            overlappingSlots: result.overlappingSlots,
+            loading: false,
+            error: '',
+          }))
           .catch((availabilityError) => setAvailability({
             bookedSlots: [],
+            overlappingSlots: [],
             loading: false,
             error: availabilityError.message,
           }));
@@ -338,10 +364,16 @@ export default function App() {
         requestAvailability(selectedDate, totalDuration, selectedStylist.id)
           .then((availabilityResult) => setAvailability({
             bookedSlots: availabilityResult.bookedSlots,
+            overlappingSlots: availabilityResult.overlappingSlots,
             loading: false,
             error: '',
           }))
-          .catch((error) => setAvailability({ bookedSlots: [], loading: false, error: error.message }));
+          .catch((error) => setAvailability({
+            bookedSlots: [],
+            overlappingSlots: [],
+            loading: false,
+            error: error.message,
+          }));
       }
       setCancelFeedback({
         success: true,
@@ -589,7 +621,10 @@ export default function App() {
                     })}
                   </div>
                   {!availability.loading && !availability.error &&
-                    !scheduleInfo.slots.some((slot) => !availability.bookedSlots.includes(slot.start)) && (
+                    !scheduleInfo.slots.some((slot) =>
+                      !availability.bookedSlots.includes(slot.start) &&
+                      !availability.overlappingSlots.includes(slot.start)
+                    ) && (
                       <p role="status" style={{ color: '#6b6560', marginTop: '12px' }}>
                         No appointment times are available for this date and service duration.
                       </p>
@@ -653,19 +688,24 @@ export default function App() {
                         <div className="grid-slots-wide">
                           {scheduleInfo.slots.map((slot) => {
                             const isBooked = availability.bookedSlots.includes(slot.start);
+                            const overlapsBooking = availability.overlappingSlots.includes(slot.start);
                             const isSelected = selectedSlotObj && selectedSlotObj.start === slot.start;
 
                             return (
                               <button
                                 key={slot.start}
                                 type="button"
-                                disabled={isBooked || availability.loading || Boolean(availability.error)}
+                                disabled={isBooked || overlapsBooking || availability.loading || Boolean(availability.error)}
                                 className={`slot-btn-wide ${isSelected ? 'selected' : ''}`}
                                 onClick={() => setSelectedSlotObj(slot)}
                               >
                                 <span>{slot.label}</span>
                                 <span className="slot-duration-text">
-                                  {isBooked ? 'Already Reserved' : `Full ${totalDuration} min window`}
+                                  {isBooked
+                                    ? 'Already Reserved'
+                                    : overlapsBooking
+                                      ? 'Unavailable — overlaps another appointment'
+                                      : `Full ${totalDuration} min window`}
                                 </span>
                               </button>
                             );
@@ -682,7 +722,9 @@ export default function App() {
                     <button
                       type="button"
                       className="btn-primary"
-                      disabled={scheduleInfo.closed || !selectedSlotObj || availability.loading || Boolean(availability.error) || availability.bookedSlots.includes(selectedSlotObj.start)}
+                      disabled={scheduleInfo.closed || !selectedSlotObj || availability.loading || Boolean(availability.error) ||
+                        availability.bookedSlots.includes(selectedSlotObj.start) ||
+                        availability.overlappingSlots.includes(selectedSlotObj.start)}
                       onClick={() => setStep(4)}
                     >
                       Continue to Guest Details →
