@@ -402,7 +402,7 @@ async function requireAdmin(req, res, next) {
 function sendAdminSessionCookie(req, res, token) {
   const secure = process.env.VERCEL === '1' || req.secure;
   res.setHeader('Set-Cookie',
-    `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${ADMIN_SESSION_DURATION_MS / 1000}; Path=/api/admin; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`);
+    `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${ADMIN_SESSION_DURATION_MS / 1000}; Path=/api; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`);
 }
 
 async function initializeDatabase() {
@@ -589,7 +589,7 @@ app.post(['/api/admin/logout', '/api/admin-logout'], async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const secure = process.env.VERCEL === '1';
   res.setHeader('Set-Cookie',
-    `${ADMIN_SESSION_COOKIE}=; Max-Age=0; Path=/api/admin; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`);
+    `${ADMIN_SESSION_COOKIE}=; Max-Age=0; Path=/api; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`);
   const token = getAdminSessionToken(req);
   if (token) {
     try {
