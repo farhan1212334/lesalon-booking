@@ -610,6 +610,8 @@ app.get(['/api/admin/appointments', '/api/admin-appointments'], requireAdmin, as
   const status = typeof req.query.status === 'string' ? req.query.status : 'all';
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
   const date = typeof req.query.date === 'string' ? req.query.date : '';
+  const fromDate = typeof req.query.fromDate === 'string' ? req.query.fromDate : '';
+  const toDate = typeof req.query.toDate === 'string' ? req.query.toDate : '';
   const limit = Number(req.query.limit || 50);
   const offset = Number(req.query.offset || 0);
 
@@ -622,7 +624,19 @@ app.get(['/api/admin/appointments', '/api/admin-appointments'], requireAdmin, as
   if (date && !isValidDateString(date)) {
     return res.status(400).json({ error: 'Choose a valid appointment date.' });
   }
-  if (!Number.isInteger(limit) || limit < 1 || limit > 100 ||
+  if ((fromDate && !isValidDateString(fromDate)) ||
+      (toDate && !isValidDateString(toDate)) ||
+      Boolean(fromDate) !== Boolean(toDate) ||
+      (date && (fromDate || toDate))) {
+    return res.status(400).json({ error: 'Choose a valid appointment date range.' });
+  }
+  if (fromDate && (
+    fromDate > toDate ||
+    (new Date(`${toDate}T00:00:00.000Z`) - new Date(`${fromDate}T00:00:00.000Z`)) / 86400000 > 6
+  )) {
+    return res.status(400).json({ error: 'Appointment calendar ranges must cover no more than seven days.' });
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > (fromDate ? 500 : 100) ||
       !Number.isInteger(offset) || offset < 0) {
     return res.status(400).json({ error: 'Choose a valid appointment page.' });
   }
@@ -636,6 +650,12 @@ app.get(['/api/admin/appointments', '/api/admin-appointments'], requireAdmin, as
   if (date) {
     values.push(date);
     conditions.push(`appointment_date = $${values.length}`);
+  }
+  if (fromDate) {
+    values.push(fromDate);
+    conditions.push(`appointment_date >= $${values.length}`);
+    values.push(toDate);
+    conditions.push(`appointment_date <= $${values.length}`);
   }
   if (search) {
     values.push(`%${search}%`);

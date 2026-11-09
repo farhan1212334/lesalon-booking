@@ -17,9 +17,10 @@ Do not set `VITE_API_BASE_URL`; the client calls `/api` on its own domain. Redep
 
 The Admin tab requires the `ADMIN_PIN` environment variable (exactly six digits) and uses
 database-backed sessions in an HTTP-only, same-site cookie. PIN failures are
-rate-limited using PostgreSQL. Signed-in admins can search, filter, and cancel
-appointments stored in PostgreSQL. Admin cancellations use the existing
-customer cancellation email flow.
+rate-limited using PostgreSQL. Signed-in admins can browse appointments in a
+day/week calendar or the existing paginated list, search and filter records,
+and cancel appointments stored in PostgreSQL. Admin cancellations use the
+existing customer cancellation email flow.
 
 Confirmed appointments reserve their time interval across all stylists. Booking
 requests for the same date are serialized in PostgreSQL before checking for

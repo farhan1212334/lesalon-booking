@@ -1,6 +1,91 @@
 import React, { useEffect, useState } from 'react';
 
 const PAGE_SIZE = 50;
+const CALENDAR_PAGE_SIZE = 500;
+const DAY_START_MINUTE = 10 * 60;
+const DAY_END_MINUTE = 20 * 60;
+const MINUTES_PER_CALENDAR_ROW = 60;
+const CALENDAR_ROW_HEIGHT = 64;
+
+function getSalonToday() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function shiftDate(dateString, days) {
+  const date = new Date(`${dateString}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function getWeekStart(dateString) {
+  const date = new Date(`${dateString}T00:00:00.000Z`);
+  const mondayOffset = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - mondayOffset);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatCalendarDate(dateString, options) {
+  return new Intl.DateTimeFormat('en-US', { ...options, timeZone: 'UTC' })
+    .format(new Date(`${dateString}T00:00:00.000Z`));
+}
+
+function parseAppointmentMinute(timeString) {
+  const [, hourText, minuteText, period] = timeString.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  let hour = Number(hourText) % 12;
+  if (period.toUpperCase() === 'PM') hour += 12;
+  return hour * 60 + Number(minuteText);
+}
+
+function formatHour(hour) {
+  const period = hour >= 12 ? 'PM' : 'AM';
+  return `${hour % 12 || 12} ${period}`;
+}
+
+function layoutCalendarEvents(appointments) {
+  const sorted = appointments
+    .map((appointment) => ({
+      appointment,
+      start: parseAppointmentMinute(appointment.startTime),
+      end: parseAppointmentMinute(appointment.startTime) + appointment.duration,
+    }))
+    .sort((left, right) => left.start - right.start || right.end - left.end);
+  const groups = [];
+  let group = [];
+  let groupEnd = -1;
+
+  sorted.forEach((event) => {
+    if (group.length && event.start >= groupEnd) {
+      groups.push(group);
+      group = [];
+      groupEnd = -1;
+    }
+    group.push(event);
+    groupEnd = Math.max(groupEnd, event.end);
+  });
+  if (group.length) groups.push(group);
+
+  return groups.flatMap((events) => {
+    const laneEnds = [];
+    const layouts = events.map((event) => {
+      let lane = laneEnds.findIndex((end) => end <= event.start);
+      if (lane === -1) lane = laneEnds.length;
+      laneEnds[lane] = event.end;
+      return { ...event, lane };
+    });
+    return layouts.map(({ appointment, lane }) => ({
+      appointment,
+      lane,
+      laneCount: laneEnds.length,
+    }));
+  });
+}
 
 async function adminRequest(path, options = {}) {
   let response;
@@ -65,6 +150,104 @@ function AppointmentCard({ appointment, onCancel, isCanceling }) {
   );
 }
 
+function AppointmentCalendar({
+  appointments,
+  mode,
+  date,
+  selectedAppointmentId,
+  onSelectAppointment,
+  onCancel,
+  cancelingId,
+}) {
+  const weekStart = getWeekStart(date);
+  const days = mode === 'day'
+    ? [date]
+    : Array.from({ length: 7 }, (_, index) => shiftDate(weekStart, index));
+  const hours = Array.from(
+    { length: (DAY_END_MINUTE - DAY_START_MINUTE) / MINUTES_PER_CALENDAR_ROW },
+    (_, index) => DAY_START_MINUTE / 60 + index
+  );
+  const appointmentsByDate = new Map(days.map((day) => [day, []]));
+  appointments.forEach((appointment) => {
+    appointmentsByDate.get(appointment.date)?.push(appointment);
+  });
+  const eventLayoutsByDate = new Map(
+    [...appointmentsByDate].map(([day, events]) => [day, layoutCalendarEvents(events)])
+  );
+  const selectedAppointment = appointments.find(({ id }) => id === selectedAppointmentId);
+
+  return (
+    <>
+      <div className={`admin-calendar-scroll ${mode === 'week' ? 'week-view' : 'day-view'}`}>
+        <div className="admin-calendar">
+          <div className="admin-calendar-corner" />
+          {days.map((day) => (
+            <div
+              className={`admin-calendar-day-heading ${day === getSalonToday() ? 'today' : ''} ${day === date ? 'selected-date' : ''}`}
+              key={day}
+            >
+              <span>{formatCalendarDate(day, { weekday: 'short' })}</span>
+              <strong>{formatCalendarDate(day, { month: 'short', day: 'numeric' })}</strong>
+            </div>
+          ))}
+
+          <div className="admin-calendar-time-labels">
+            {hours.map((hour) => <span key={hour}>{formatHour(hour)}</span>)}
+          </div>
+          {days.map((day) => (
+            <div className="admin-calendar-day" key={day}>
+              <div className="admin-calendar-hour-lines">
+                {hours.map((hour) => <span key={hour} />)}
+              </div>
+              {eventLayoutsByDate.get(day).map(({ appointment, lane, laneCount }) => {
+                const startMinute = parseAppointmentMinute(appointment.startTime);
+                const top = ((startMinute - DAY_START_MINUTE) / MINUTES_PER_CALENDAR_ROW) * CALENDAR_ROW_HEIGHT;
+                const height = Math.max(
+                  (appointment.duration / MINUTES_PER_CALENDAR_ROW) * CALENDAR_ROW_HEIGHT,
+                  42
+                );
+                const laneWidth = 100 / laneCount;
+                const selected = appointment.id === selectedAppointmentId;
+                return (
+                  <button
+                    type="button"
+                    key={appointment.id}
+                    className={`admin-calendar-event ${appointment.status} ${selected ? 'selected' : ''}`}
+                    style={{
+                      top,
+                      height,
+                      left: `calc(${lane * laneWidth}% + 4px)`,
+                      width: `calc(${laneWidth}% - 8px)`,
+                      right: 'auto',
+                    }}
+                    aria-pressed={selected}
+                    onClick={() => onSelectAppointment(selected ? null : appointment.id)}
+                  >
+                    <strong>{appointment.startTime} · {appointment.fullName}</strong>
+                    <span>{appointment.serviceNames.join(', ')}</span>
+                    <span>{appointment.stylistName}</span>
+                  </button>
+                );
+              })}
+              {new Date(`${day}T00:00:00.000Z`).getUTCDay() === 0 &&
+                appointmentsByDate.get(day).length === 0 && (
+                <span className="admin-calendar-closed">Closed</span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      {selectedAppointment && (
+        <AppointmentCard
+          appointment={selectedAppointment}
+          onCancel={onCancel}
+          isCanceling={cancelingId === selectedAppointment.id}
+        />
+      )}
+    </>
+  );
+}
+
 export default function AdminPanel() {
   const [authState, setAuthState] = useState('checking');
   const [configured, setConfigured] = useState(true);
@@ -72,6 +255,10 @@ export default function AdminPanel() {
   const [authError, setAuthError] = useState('');
   const [appointments, setAppointments] = useState([]);
   const [statusFilter, setStatusFilter] = useState('confirmed');
+  const [viewMode, setViewMode] = useState('calendar');
+  const [calendarMode, setCalendarMode] = useState('week');
+  const [calendarDate, setCalendarDate] = useState(getSalonToday);
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState(null);
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('');
@@ -79,6 +266,7 @@ export default function AdminPanel() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState('');
+  const [calendarWarning, setCalendarWarning] = useState('');
   const [feedback, setFeedback] = useState('');
   const [cancelingId, setCancelingId] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -111,19 +299,31 @@ export default function AdminPanel() {
   useEffect(() => {
     if (authState !== 'authenticated') return undefined;
     const controller = new AbortController();
+    const calendarStart = calendarMode === 'day' ? calendarDate : getWeekStart(calendarDate);
+    const calendarEnd = calendarMode === 'day' ? calendarDate : shiftDate(calendarStart, 6);
     const params = new URLSearchParams({
       status: statusFilter,
       search: appliedSearch,
-      date: dateFilter,
-      limit: String(PAGE_SIZE),
-      offset: String(offset),
+      limit: String(viewMode === 'calendar' ? CALENDAR_PAGE_SIZE : PAGE_SIZE),
+      offset: String(viewMode === 'calendar' ? 0 : offset),
     });
+    if (viewMode === 'calendar') {
+      params.set('fromDate', calendarStart);
+      params.set('toDate', calendarEnd);
+    } else {
+      params.set('date', dateFilter);
+    }
     setLoading(true);
     setListError('');
+    setCalendarWarning('');
     adminRequest(`/api/admin-appointments?${params}`, { signal: controller.signal })
       .then((result) => {
         setAppointments(result.appointments);
         setHasMore(result.hasMore);
+        setSelectedAppointmentId(null);
+        if (viewMode === 'calendar' && result.hasMore) {
+          setCalendarWarning('This calendar range contains more than 500 appointments. Add a search or status filter to view the full schedule.');
+        }
       })
       .catch((error) => {
         if (error.name !== 'AbortError') setListError(error.message);
@@ -132,7 +332,7 @@ export default function AdminPanel() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [authState, statusFilter, appliedSearch, dateFilter, offset, reloadKey]);
+  }, [authState, statusFilter, appliedSearch, dateFilter, offset, reloadKey, viewMode, calendarMode, calendarDate]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -233,6 +433,79 @@ export default function AdminPanel() {
         <button type="button" className="btn-secondary admin-logout" onClick={handleLogout}>Sign out</button>
       </div>
 
+      <div className="admin-view-toolbar" aria-label="Appointment view">
+        <div className="admin-view-toggle" role="group" aria-label="Choose appointment view">
+          <button
+            type="button"
+            className={viewMode === 'calendar' ? 'active' : ''}
+            aria-pressed={viewMode === 'calendar'}
+            onClick={() => { setOffset(0); setViewMode('calendar'); }}
+          >
+            Calendar
+          </button>
+          <button
+            type="button"
+            className={viewMode === 'list' ? 'active' : ''}
+            aria-pressed={viewMode === 'list'}
+            onClick={() => { setOffset(0); setViewMode('list'); }}
+          >
+            List
+          </button>
+        </div>
+
+        {viewMode === 'calendar' && (
+          <div className="admin-calendar-controls">
+            <div className="admin-view-toggle" role="group" aria-label="Choose calendar range">
+              <button
+                type="button"
+                className={calendarMode === 'day' ? 'active' : ''}
+                aria-pressed={calendarMode === 'day'}
+                onClick={() => setCalendarMode('day')}
+              >
+                Day
+              </button>
+              <button
+                type="button"
+                className={calendarMode === 'week' ? 'active' : ''}
+                aria-pressed={calendarMode === 'week'}
+                onClick={() => setCalendarMode('week')}
+              >
+                Week
+              </button>
+            </div>
+            <button
+              type="button"
+              className="admin-calendar-nav"
+              aria-label={`Previous ${calendarMode}`}
+              onClick={() => setCalendarDate((current) => shiftDate(current, calendarMode === 'day' ? -1 : -7))}
+            >
+              ‹
+            </button>
+            <label className="admin-calendar-date">
+              <span className="sr-only">Calendar date</span>
+              <input
+                type="date"
+                value={calendarDate}
+                onChange={(event) => {
+                  if (event.target.value) setCalendarDate(event.target.value);
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="admin-calendar-nav"
+              aria-label={`Next ${calendarMode}`}
+              onClick={() => setCalendarDate((current) => shiftDate(current, calendarMode === 'day' ? 1 : 7))}
+            >
+              ›
+            </button>
+            <button type="button" className="admin-calendar-today" onClick={() => setCalendarDate(getSalonToday())}>
+              Today
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="card-box admin-filters">
         <div className="admin-filter-field">
           <label className="form-label" htmlFor="adminSearch">Search reservations</label>
@@ -258,53 +531,73 @@ export default function AdminPanel() {
             <option value="canceled">Canceled</option>
           </select>
         </div>
-        <div className="admin-filter-field">
-          <label className="form-label" htmlFor="adminDate">Appointment date</label>
-          <input
-            id="adminDate"
-            className="form-input"
-            type="date"
-            value={dateFilter}
-            onChange={(event) => { setOffset(0); setDateFilter(event.target.value); }}
-          />
-        </div>
+        {viewMode === 'list' && (
+          <div className="admin-filter-field">
+            <label className="form-label" htmlFor="adminDate">Appointment date</label>
+            <input
+              id="adminDate"
+              className="form-input"
+              type="date"
+              value={dateFilter}
+              onChange={(event) => { setOffset(0); setDateFilter(event.target.value); }}
+            />
+          </div>
+        )}
       </div>
 
       {feedback && <div className="status-alert alert-success" role="status">{feedback}</div>}
       {listError && <div className="status-alert alert-warning" role="alert">{listError}</div>}
+      {calendarWarning && viewMode === 'calendar' && (
+        <div className="status-alert alert-warning" role="status">{calendarWarning}</div>
+      )}
       {loading && <p className="admin-loading" role="status">Loading appointments…</p>}
       {!loading && !listError && appointments.length === 0 && (
         <div className="card-box admin-empty">No appointments match these filters.</div>
       )}
-      <div className="admin-appointment-list">
-        {appointments.map((appointment) => (
-          <AppointmentCard
-            key={appointment.id}
-            appointment={appointment}
-            onCancel={handleCancel}
-            isCanceling={cancelingId === appointment.id}
-          />
-        ))}
-      </div>
-      <div className="admin-pagination">
-        <button
-          type="button"
-          className="btn-secondary"
-          disabled={offset === 0 || loading}
-          onClick={() => setOffset((current) => Math.max(0, current - PAGE_SIZE))}
-        >
-          Previous
-        </button>
-        <span>Showing {appointments.length ? offset + 1 : 0}–{offset + appointments.length}</span>
-        <button
-          type="button"
-          className="btn-secondary"
-          disabled={!hasMore || loading}
-          onClick={() => setOffset((current) => current + PAGE_SIZE)}
-        >
-          Next
-        </button>
-      </div>
+      {!loading && !listError && viewMode === 'calendar' && (
+        <AppointmentCalendar
+          appointments={appointments}
+          mode={calendarMode}
+          date={calendarDate}
+          selectedAppointmentId={selectedAppointmentId}
+          onSelectAppointment={setSelectedAppointmentId}
+          onCancel={handleCancel}
+          cancelingId={cancelingId}
+        />
+      )}
+      {viewMode === 'list' && (
+        <>
+          <div className="admin-appointment-list">
+            {appointments.map((appointment) => (
+              <AppointmentCard
+                key={appointment.id}
+                appointment={appointment}
+                onCancel={handleCancel}
+                isCanceling={cancelingId === appointment.id}
+              />
+            ))}
+          </div>
+          <div className="admin-pagination">
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={offset === 0 || loading}
+              onClick={() => setOffset((current) => Math.max(0, current - PAGE_SIZE))}
+            >
+              Previous
+            </button>
+            <span>Showing {appointments.length ? offset + 1 : 0}–{offset + appointments.length}</span>
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={!hasMore || loading}
+              onClick={() => setOffset((current) => current + PAGE_SIZE)}
+            >
+              Next
+            </button>
+          </div>
+        </>
+      )}
     </section>
   );
 }
