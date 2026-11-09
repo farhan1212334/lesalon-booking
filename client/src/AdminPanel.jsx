@@ -20,7 +20,10 @@ async function adminRequest(path, options = {}) {
 
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const requestError = new Error(result.error || 'The request could not be completed. Please try again.');
+    const defaultMessage = response.status === 404
+      ? 'The admin API route was not found. The Vercel deployment may still be updating; refresh the page shortly.'
+      : `The request could not be completed (HTTP ${response.status}). Please try again.`;
+    const requestError = new Error(result.error || defaultMessage);
     requestError.status = response.status;
     throw requestError;
   }
@@ -65,7 +68,7 @@ function AppointmentCard({ appointment, onCancel, isCanceling }) {
 export default function AdminPanel() {
   const [authState, setAuthState] = useState('checking');
   const [configured, setConfigured] = useState(true);
-  const [password, setPassword] = useState('');
+  const [pin, setPin] = useState('');
   const [authError, setAuthError] = useState('');
   const [appointments, setAppointments] = useState([]);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -82,7 +85,7 @@ export default function AdminPanel() {
 
   useEffect(() => {
     let active = true;
-    adminRequest('/api/admin/session')
+    adminRequest('/api/admin-session')
       .then((result) => {
         if (!active) return;
         setConfigured(result.configured);
@@ -117,7 +120,7 @@ export default function AdminPanel() {
     });
     setLoading(true);
     setListError('');
-    adminRequest(`/api/admin/appointments?${params}`, { signal: controller.signal })
+    adminRequest(`/api/admin-appointments?${params}`, { signal: controller.signal })
       .then((result) => {
         setAppointments(result.appointments);
         setHasMore(result.hasMore);
@@ -135,11 +138,11 @@ export default function AdminPanel() {
     event.preventDefault();
     setAuthError('');
     try {
-      await adminRequest('/api/admin/login', {
+      await adminRequest('/api/admin-login', {
         method: 'POST',
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ pin }),
       });
-      setPassword('');
+      setPin('');
       setConfigured(true);
       setAuthState('authenticated');
     } catch (error) {
@@ -151,7 +154,7 @@ export default function AdminPanel() {
   const handleLogout = async () => {
     setAuthError('');
     try {
-      await adminRequest('/api/admin/logout', { method: 'POST', body: '{}' });
+      await adminRequest('/api/admin-logout', { method: 'POST', body: '{}' });
       setAppointments([]);
       setAuthState('signed-out');
       setFeedback('');
@@ -167,9 +170,9 @@ export default function AdminPanel() {
     setCancelingId(appointment.id);
     setFeedback('');
     try {
-      const result = await adminRequest(`/api/admin/appointments/${appointment.id}/cancel`, {
+      const result = await adminRequest('/api/admin-cancel', {
         method: 'POST',
-        body: '{}',
+        body: JSON.stringify({ appointmentId: appointment.id }),
       });
       setFeedback(result.emailStatus.sent
         ? `Appointment ${appointment.referenceCode} canceled; the customer cancellation email was accepted.`
@@ -194,19 +197,23 @@ export default function AdminPanel() {
         {authError && <div className="status-alert alert-warning" role="alert">{authError}</div>}
         {!configured && (
           <p className="admin-setup-note">
-            Add <code>ADMIN_PASSWORD</code> in your Vercel project environment variables, using a unique password with at least 16 characters, then redeploy.
+            Add <code>ADMIN_PIN</code> in your Vercel project environment variables as exactly six digits, then redeploy.
           </p>
         )}
         <form onSubmit={handleLogin}>
           <div className="form-field">
-            <label className="form-label" htmlFor="adminPassword">Admin password</label>
+            <label className="form-label" htmlFor="adminPin">Six-digit admin PIN</label>
             <input
-              id="adminPassword"
+              id="adminPin"
               className="form-input"
               type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              inputMode="numeric"
+              pattern="[0-9]{6}"
+              minLength={6}
+              maxLength={6}
+              autoComplete="off"
+              value={pin}
+              onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
               required
             />
           </div>

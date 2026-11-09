@@ -11,6 +11,8 @@ const TIME_ZONE = 'America/New_York';
 const BOOKING_HORIZON_DAYS = 90;
 const ADMIN_SESSION_COOKIE = 'salon_admin_session';
 const ADMIN_SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
+const ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const ADMIN_LOGIN_MAX_FAILURES = 5;
 const STYLISTS = [
   { id: 'ashraf', name: 'Ashraf' },
   { id: 'ricardo', name: 'Ricardo' },
@@ -341,18 +343,12 @@ function formatAppointment(row) {
   };
 }
 
-function getAdminPassword() {
-  const password = process.env.ADMIN_PASSWORD;
-  return typeof password === 'string' && password.length >= 16 ? password : null;
+function getAdminPin() {
+  const pin = process.env.ADMIN_PIN;
+  return typeof pin === 'string' && /^\d{6}$/.test(pin) ? pin : null;
 }
 
-function getAdminSessionToken(password, expiresAt) {
-  const payload = `admin-session:${expiresAt}`;
-  const signature = crypto.createHmac('sha256', password).update(payload).digest('base64url');
-  return `${expiresAt}.${signature}`;
-}
-
-function isValidAdminSession(req, password) {
+function getAdminSessionToken(req) {
   const cookieHeader = req.headers.cookie || '';
   const cookie = cookieHeader.split(';').map((part) => part.trim())
     .find((part) => part.startsWith(`${ADMIN_SESSION_COOKIE}=`));
@@ -362,38 +358,48 @@ function isValidAdminSession(req, password) {
   try {
     token = decodeURIComponent(cookie.slice(ADMIN_SESSION_COOKIE.length + 1));
   } catch {
-    return false;
+    return null;
   }
-  const tokenParts = token.split('.');
-  if (tokenParts.length !== 2) return false;
-  const [expiresAtText, signature] = tokenParts;
-  const expiresAt = Number(expiresAtText);
-  if (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now() || !signature) return false;
-
-  const expected = getAdminSessionToken(password, expiresAt).split('.')[1];
-  const actualBytes = Buffer.from(signature);
-  const expectedBytes = Buffer.from(expected);
-  return actualBytes.length === expectedBytes.length &&
-    crypto.timingSafeEqual(actualBytes, expectedBytes);
+  return /^[a-f0-9]{64}$/.test(token) ? token : null;
 }
 
-function requireAdmin(req, res, next) {
+function getAdminClientKey(req) {
+  const forwardedIp = req.headers['x-real-ip'];
+  const address = typeof forwardedIp === 'string' && forwardedIp
+    ? forwardedIp
+    : req.ip || req.socket.remoteAddress || 'unknown';
+  return crypto.createHash('sha256').update(address).digest('hex');
+}
+
+async function requireAdmin(req, res, next) {
   res.setHeader('Cache-Control', 'no-store');
-  const password = getAdminPassword();
-  if (!password) {
+  if (!getAdminPin()) {
     return res.status(503).json({
-      error: 'Admin access is not configured. Set ADMIN_PASSWORD to a strong password of at least 16 characters.',
+      error: 'Admin access is not configured. Set ADMIN_PIN to a six-digit numeric PIN in Vercel.',
     });
   }
-  if (!isValidAdminSession(req, password)) {
+  const token = getAdminSessionToken(req);
+  if (!token) {
     return res.status(401).json({ error: 'Admin sign-in is required.' });
   }
-  return next();
+
+  try {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const session = await pool.query(
+      'SELECT 1 FROM admin_sessions WHERE token_hash = $1 AND expires_at > NOW();',
+      [tokenHash]
+    );
+    if (session.rowCount === 0) {
+      return res.status(401).json({ error: 'Admin sign-in is required.' });
+    }
+    return next();
+  } catch (error) {
+    console.error('Admin session validation failed:', error.message);
+    return res.status(503).json({ error: 'Admin access is temporarily unavailable. Please try again.' });
+  }
 }
 
-function sendAdminSessionCookie(req, res, password) {
-  const expiresAt = Date.now() + ADMIN_SESSION_DURATION_MS;
-  const token = getAdminSessionToken(password, expiresAt);
+function sendAdminSessionCookie(req, res, token) {
   const secure = process.env.VERCEL === '1' || req.secure;
   res.setHeader('Set-Cookie',
     `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${ADMIN_SESSION_DURATION_MS / 1000}; Path=/api/admin; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`);
@@ -424,6 +430,19 @@ async function initializeDatabase() {
     );
     CREATE INDEX IF NOT EXISTS booking_appointments_date_status_idx
       ON booking_appointments (appointment_date, status);
+    CREATE TABLE IF NOT EXISTS admin_login_attempts (
+      client_key CHAR(64) PRIMARY KEY,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      window_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      locked_until TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS admin_sessions (
+      token_hash CHAR(64) PRIMARY KEY,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS admin_sessions_expires_at_idx
+      ON admin_sessions (expires_at);
   `);
   console.log('Connected to PostgreSQL; booking table is ready.');
 }
@@ -466,45 +485,125 @@ app.get('/', (_req, res) => res.status(200).send('Le Salon NYC booking API is ru
 app.get('/health', healthCheck);
 app.get('/api/health', healthCheck);
 
-app.post('/api/admin/login', (req, res) => {
+app.post(['/api/admin/login', '/api/admin-login'], async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  const configuredPassword = getAdminPassword();
-  if (!configuredPassword) {
+  const configuredPin = getAdminPin();
+  if (!configuredPin) {
     return res.status(503).json({
-      error: 'Admin access is not configured. Set ADMIN_PASSWORD to a strong password of at least 16 characters.',
+      error: 'Admin access is not configured. Set ADMIN_PIN to a six-digit numeric PIN in Vercel.',
     });
   }
 
-  const password = typeof req.body?.password === 'string' ? req.body.password : '';
-  const submittedDigest = crypto.createHash('sha256').update(password).digest();
-  const configuredDigest = crypto.createHash('sha256').update(configuredPassword).digest();
-  const passwordMatches = crypto.timingSafeEqual(submittedDigest, configuredDigest) &&
-    password.length === configuredPassword.length;
-  if (!passwordMatches) {
-    return res.status(401).json({ error: 'The admin password is incorrect.' });
+  const pin = typeof req.body?.pin === 'string' ? req.body.pin : '';
+  if (!/^\d{6}$/.test(pin)) {
+    return res.status(400).json({ error: 'Enter your six-digit admin PIN.' });
   }
 
-  sendAdminSessionCookie(req, res, configuredPassword);
-  return res.status(200).json({ authenticated: true });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    const clientKey = getAdminClientKey(req);
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1));', [clientKey]);
+    const attemptsResult = await client.query(
+      'SELECT failed_attempts, window_started_at, locked_until FROM admin_login_attempts WHERE client_key = $1 FOR UPDATE;',
+      [clientKey]
+    );
+    const attempts = attemptsResult.rows[0];
+    if (attempts?.locked_until && new Date(attempts.locked_until).getTime() > Date.now()) {
+      await client.query('ROLLBACK');
+      return res.status(429).json({ error: 'Too many incorrect PIN attempts. Please wait 15 minutes before trying again.' });
+    }
+
+    const pinMatches = crypto.timingSafeEqual(Buffer.from(pin), Buffer.from(configuredPin));
+    if (!pinMatches) {
+      const currentWindow = attempts &&
+        Date.now() - new Date(attempts.window_started_at).getTime() < ADMIN_LOGIN_WINDOW_MS;
+      const failures = currentWindow ? attempts.failed_attempts + 1 : 1;
+      await client.query(
+        `INSERT INTO admin_login_attempts (client_key, failed_attempts, window_started_at, locked_until)
+         VALUES ($1, $2, NOW(), CASE WHEN $2 >= $3 THEN NOW() + INTERVAL '15 minutes' ELSE NULL END)
+         ON CONFLICT (client_key) DO UPDATE
+           SET failed_attempts = EXCLUDED.failed_attempts,
+               window_started_at = EXCLUDED.window_started_at,
+               locked_until = EXCLUDED.locked_until;`,
+        [clientKey, failures, ADMIN_LOGIN_MAX_FAILURES]
+      );
+      await client.query('COMMIT');
+      if (failures >= ADMIN_LOGIN_MAX_FAILURES) {
+        return res.status(429).json({ error: 'Too many incorrect PIN attempts. Please wait 15 minutes before trying again.' });
+      }
+      return res.status(401).json({ error: 'The admin PIN is incorrect.' });
+    }
+
+    await client.query('DELETE FROM admin_login_attempts WHERE client_key = $1;', [clientKey]);
+    await client.query("DELETE FROM admin_sessions WHERE expires_at < NOW();");
+    await client.query("DELETE FROM admin_login_attempts WHERE window_started_at < NOW() - INTERVAL '1 day' AND (locked_until IS NULL OR locked_until < NOW());");
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    await client.query(
+      `INSERT INTO admin_sessions (token_hash, expires_at)
+       VALUES ($1, NOW() + INTERVAL '8 hours');`,
+      [tokenHash]
+    );
+    await client.query('COMMIT');
+    sendAdminSessionCookie(req, res, token);
+    return res.status(200).json({ authenticated: true });
+  } catch (error) {
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Admin login rollback failed:', rollbackError.message);
+      }
+    }
+    console.error('Admin login failed:', error.message);
+    return res.status(503).json({ error: 'Admin sign-in is temporarily unavailable. Please try again.' });
+  } finally {
+    if (client) client.release();
+  }
 });
 
-app.get('/api/admin/session', (req, res) => {
+app.get(['/api/admin/session', '/api/admin-session'], async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  const password = getAdminPassword();
-  return res.status(200).json({
-    configured: Boolean(password),
-    authenticated: Boolean(password && isValidAdminSession(req, password)),
-  });
+  const configured = Boolean(getAdminPin());
+  const token = getAdminSessionToken(req);
+  if (!configured || !token) {
+    return res.status(200).json({ configured, authenticated: false });
+  }
+
+  try {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const result = await pool.query(
+      'SELECT 1 FROM admin_sessions WHERE token_hash = $1 AND expires_at > NOW();',
+      [tokenHash]
+    );
+    return res.status(200).json({ configured, authenticated: result.rowCount > 0 });
+  } catch (error) {
+    console.error('Admin session check failed:', error.message);
+    return res.status(503).json({ error: 'Admin access is temporarily unavailable. Please try again.' });
+  }
 });
 
-app.post('/api/admin/logout', (_req, res) => {
+app.post(['/api/admin/logout', '/api/admin-logout'], async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   const secure = process.env.VERCEL === '1';
   res.setHeader('Set-Cookie',
     `${ADMIN_SESSION_COOKIE}=; Max-Age=0; Path=/api/admin; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`);
+  const token = getAdminSessionToken(req);
+  if (token) {
+    try {
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      await pool.query('DELETE FROM admin_sessions WHERE token_hash = $1;', [tokenHash]);
+    } catch (error) {
+      console.error('Admin logout failed:', error.message);
+      return res.status(503).json({ error: 'Could not end the admin session. Please try again.' });
+    }
+  }
   return res.status(200).json({ authenticated: false });
 });
 
-app.get('/api/admin/appointments', requireAdmin, async (req, res) => {
+app.get(['/api/admin/appointments', '/api/admin-appointments'], requireAdmin, async (req, res) => {
   const status = typeof req.query.status === 'string' ? req.query.status : 'all';
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
   const date = typeof req.query.date === 'string' ? req.query.date : '';
@@ -713,8 +812,11 @@ async function sendCancellationEmail(appointment) {
   }
 }
 
-app.post('/api/admin/appointments/:id/cancel', requireAdmin, async (req, res) => {
-  if (!/^\d+$/.test(req.params.id) || !Number.isSafeInteger(Number(req.params.id))) {
+app.post(['/api/admin/appointments/:id/cancel', '/api/admin-cancel'], requireAdmin, async (req, res) => {
+  const appointmentId = req.params.id || req.body?.appointmentId;
+  if (typeof appointmentId !== 'string' && typeof appointmentId !== 'number' ||
+      !/^\d+$/.test(String(appointmentId)) ||
+      !Number.isSafeInteger(Number(appointmentId))) {
     return res.status(400).json({ error: 'Choose a valid appointment.' });
   }
 
@@ -724,7 +826,7 @@ app.post('/api/admin/appointments/:id/cancel', requireAdmin, async (req, res) =>
        SET status = 'canceled'
        WHERE id = $1 AND status = 'confirmed'
        RETURNING *;`,
-      [req.params.id]
+      [appointmentId]
     );
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'No active reservation matches that appointment.' });
