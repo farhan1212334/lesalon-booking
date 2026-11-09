@@ -96,6 +96,7 @@ body {
   border: none;
   background: transparent;
   padding: 10px 18px;
+  min-height: 44px;
   border-radius: 20px;
   font-size: 0.85rem;
   font-weight: 600;
@@ -186,6 +187,7 @@ body {
   border: 1px solid var(--border-light);
   background: var(--card-bg);
   padding: 10px 18px;
+  min-height: 44px;
   border-radius: 25px;
   font-size: 0.82rem;
   font-weight: 500;
@@ -261,6 +263,7 @@ body {
   background: #ffffff;
   color: var(--dark-charcoal);
   padding: 8px 18px;
+  min-height: 44px;
   border-radius: 24px;
   font-size: 0.82rem;
   font-weight: 700;
@@ -547,6 +550,21 @@ body {
 
 /* Mobile & Tablet Media Queries */
 @media (max-width: 640px) {
+  .stepper-container {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 8px;
+    overflow: visible;
+  }
+  .step-item {
+    gap: 6px;
+    font-size: 0.75rem;
+  }
+  .step-badge {
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+  }
   .header-container {
     flex-direction: column;
     gap: 12px;
@@ -579,5 +597,232 @@ body {
   }
   .grid-slots-wide {
     grid-template-columns: 1fr;
+  }
+}
+
+.admin-panel {
+  min-width: 0;
+}
+
+.admin-login {
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.admin-login h2,
+.admin-toolbar h2 {
+  font-size: 1.4rem;
+  margin-bottom: 6px;
+}
+
+.admin-login > p,
+.admin-toolbar p {
+  color: var(--body-muted);
+  font-size: 0.9rem;
+  margin-bottom: 18px;
+}
+
+.admin-setup-note {
+  padding: 12px;
+  border: 1px solid var(--gold-border);
+  border-radius: var(--radius-sm);
+  background: var(--gold-light);
+}
+
+.admin-setup-note code {
+  font-weight: 700;
+}
+
+.admin-login-button {
+  width: 100%;
+}
+
+.admin-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.admin-toolbar p {
+  margin-bottom: 0;
+}
+
+.admin-logout {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 20px;
+}
+
+.admin-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(150px, 1fr) minmax(160px, 1fr);
+  gap: 14px;
+}
+
+.admin-filter-field {
+  min-width: 0;
+}
+
+.admin-filter-field .form-field {
+  margin-bottom: 0;
+}
+
+.admin-appointment-list {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-appointment {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-subtle);
+}
+
+.admin-appointment-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.admin-appointment-heading h3 {
+  display: inline;
+  margin-right: 10px;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.admin-reference {
+  color: var(--gold-hover);
+  font-family: monospace;
+  overflow-wrap: anywhere;
+}
+
+.admin-status {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.admin-status.confirmed {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.admin-status.canceled {
+  background: #f5f4f0;
+  color: var(--body-muted);
+}
+
+.admin-appointment-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+}
+
+.admin-appointment-details > div {
+  min-width: 0;
+}
+
+.admin-appointment-details dt {
+  color: var(--body-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.admin-appointment-details dd {
+  overflow-wrap: anywhere;
+  font-size: 0.88rem;
+}
+
+.admin-appointment-details a {
+  color: var(--gold-hover);
+}
+
+.admin-notes {
+  grid-column: 1 / -1;
+}
+
+.admin-cancel-button {
+  min-height: 44px;
+  margin-top: 16px;
+}
+
+.admin-loading,
+.admin-empty {
+  color: var(--body-muted);
+  text-align: center;
+}
+
+.admin-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 18px;
+  font-size: 0.85rem;
+}
+
+.admin-pagination .btn-secondary {
+  flex: 0 1 140px;
+  min-height: 44px;
+}
+
+.admin-pagination .btn-secondary:disabled {
+  color: #9c9589;
+  background: #e2ddd3;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .tab-btn {
+    padding-right: 8px;
+    padding-left: 8px;
+    font-size: 0.75rem;
+  }
+
+  .admin-filters,
+  .admin-appointment-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-toolbar {
+    align-items: center;
+  }
+
+  .admin-toolbar > div {
+    min-width: 0;
+  }
+
+  .admin-logout {
+    width: auto;
+  }
+
+  .admin-appointment-heading {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .admin-notes {
+    grid-column: auto;
+  }
+
+  .admin-pagination {
+    gap: 8px;
+  }
+
+  .admin-pagination .btn-secondary {
+    flex: 1;
+    padding: 0 10px;
   }
 }

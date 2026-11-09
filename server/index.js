@@ -9,6 +9,8 @@ const PORT = Number(process.env.PORT) || 5000;
 const DB_POOL_MAX = Number(process.env.PG_POOL_MAX) || 2;
 const TIME_ZONE = 'America/New_York';
 const BOOKING_HORIZON_DAYS = 90;
+const ADMIN_SESSION_COOKIE = 'salon_admin_session';
+const ADMIN_SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
 const STYLISTS = [
   { id: 'ashraf', name: 'Ashraf' },
   { id: 'ricardo', name: 'Ricardo' },
@@ -339,6 +341,64 @@ function formatAppointment(row) {
   };
 }
 
+function getAdminPassword() {
+  const password = process.env.ADMIN_PASSWORD;
+  return typeof password === 'string' && password.length >= 16 ? password : null;
+}
+
+function getAdminSessionToken(password, expiresAt) {
+  const payload = `admin-session:${expiresAt}`;
+  const signature = crypto.createHmac('sha256', password).update(payload).digest('base64url');
+  return `${expiresAt}.${signature}`;
+}
+
+function isValidAdminSession(req, password) {
+  const cookieHeader = req.headers.cookie || '';
+  const cookie = cookieHeader.split(';').map((part) => part.trim())
+    .find((part) => part.startsWith(`${ADMIN_SESSION_COOKIE}=`));
+  if (!cookie) return false;
+
+  let token;
+  try {
+    token = decodeURIComponent(cookie.slice(ADMIN_SESSION_COOKIE.length + 1));
+  } catch {
+    return false;
+  }
+  const tokenParts = token.split('.');
+  if (tokenParts.length !== 2) return false;
+  const [expiresAtText, signature] = tokenParts;
+  const expiresAt = Number(expiresAtText);
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now() || !signature) return false;
+
+  const expected = getAdminSessionToken(password, expiresAt).split('.')[1];
+  const actualBytes = Buffer.from(signature);
+  const expectedBytes = Buffer.from(expected);
+  return actualBytes.length === expectedBytes.length &&
+    crypto.timingSafeEqual(actualBytes, expectedBytes);
+}
+
+function requireAdmin(req, res, next) {
+  res.setHeader('Cache-Control', 'no-store');
+  const password = getAdminPassword();
+  if (!password) {
+    return res.status(503).json({
+      error: 'Admin access is not configured. Set ADMIN_PASSWORD to a strong password of at least 16 characters.',
+    });
+  }
+  if (!isValidAdminSession(req, password)) {
+    return res.status(401).json({ error: 'Admin sign-in is required.' });
+  }
+  return next();
+}
+
+function sendAdminSessionCookie(req, res, password) {
+  const expiresAt = Date.now() + ADMIN_SESSION_DURATION_MS;
+  const token = getAdminSessionToken(password, expiresAt);
+  const secure = process.env.VERCEL === '1' || req.secure;
+  res.setHeader('Set-Cookie',
+    `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(token)}; Max-Age=${ADMIN_SESSION_DURATION_MS / 1000}; Path=/api/admin; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`);
+}
+
 async function initializeDatabase() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS booking_appointments (
@@ -406,6 +466,103 @@ app.get('/', (_req, res) => res.status(200).send('Le Salon NYC booking API is ru
 app.get('/health', healthCheck);
 app.get('/api/health', healthCheck);
 
+app.post('/api/admin/login', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const configuredPassword = getAdminPassword();
+  if (!configuredPassword) {
+    return res.status(503).json({
+      error: 'Admin access is not configured. Set ADMIN_PASSWORD to a strong password of at least 16 characters.',
+    });
+  }
+
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const submittedDigest = crypto.createHash('sha256').update(password).digest();
+  const configuredDigest = crypto.createHash('sha256').update(configuredPassword).digest();
+  const passwordMatches = crypto.timingSafeEqual(submittedDigest, configuredDigest) &&
+    password.length === configuredPassword.length;
+  if (!passwordMatches) {
+    return res.status(401).json({ error: 'The admin password is incorrect.' });
+  }
+
+  sendAdminSessionCookie(req, res, configuredPassword);
+  return res.status(200).json({ authenticated: true });
+});
+
+app.get('/api/admin/session', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const password = getAdminPassword();
+  return res.status(200).json({
+    configured: Boolean(password),
+    authenticated: Boolean(password && isValidAdminSession(req, password)),
+  });
+});
+
+app.post('/api/admin/logout', (_req, res) => {
+  const secure = process.env.VERCEL === '1';
+  res.setHeader('Set-Cookie',
+    `${ADMIN_SESSION_COOKIE}=; Max-Age=0; Path=/api/admin; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`);
+  return res.status(200).json({ authenticated: false });
+});
+
+app.get('/api/admin/appointments', requireAdmin, async (req, res) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : 'all';
+  const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+  const date = typeof req.query.date === 'string' ? req.query.date : '';
+  const limit = Number(req.query.limit || 50);
+  const offset = Number(req.query.offset || 0);
+
+  if (!['all', 'confirmed', 'canceled'].includes(status)) {
+    return res.status(400).json({ error: 'Choose a valid appointment status filter.' });
+  }
+  if (search.length > 100) {
+    return res.status(400).json({ error: 'Search text must be 100 characters or fewer.' });
+  }
+  if (date && !isValidDateString(date)) {
+    return res.status(400).json({ error: 'Choose a valid appointment date.' });
+  }
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100 ||
+      !Number.isInteger(offset) || offset < 0) {
+    return res.status(400).json({ error: 'Choose a valid appointment page.' });
+  }
+
+  const conditions = [];
+  const values = [];
+  if (status !== 'all') {
+    values.push(status);
+    conditions.push(`status = $${values.length}`);
+  }
+  if (date) {
+    values.push(date);
+    conditions.push(`appointment_date = $${values.length}`);
+  }
+  if (search) {
+    values.push(`%${search}%`);
+    const parameter = `$${values.length}`;
+    conditions.push(`(reference_code ILIKE ${parameter} OR full_name ILIKE ${parameter} OR email ILIKE ${parameter} OR phone ILIKE ${parameter})`);
+  }
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  values.push(limit + 1, offset);
+
+  try {
+    const result = await pool.query(
+      `SELECT * FROM booking_appointments
+       ${whereClause}
+       ORDER BY appointment_date DESC, start_minute DESC, id DESC
+       LIMIT $${values.length - 1} OFFSET $${values.length};`,
+      values
+    );
+    const hasMore = result.rows.length > limit;
+    const rows = hasMore ? result.rows.slice(0, limit) : result.rows;
+    return res.status(200).json({
+      appointments: rows.map(formatAppointment),
+      hasMore,
+    });
+  } catch (error) {
+    console.error('Admin appointments query failed:', error.message);
+    return res.status(503).json({ error: 'Appointments are temporarily unavailable. Please try again.' });
+  }
+});
+
 async function availabilityHandler(req, res) {
   const { date, stylistId = 'any' } = req.query;
   const duration = Number(req.query.duration || 30);
@@ -428,16 +585,11 @@ async function availabilityHandler(req, res) {
     const schedule = getSchedule(date, duration).filter((slot) =>
       date !== getSalonDate() || slot.startMinute > getCurrentSalonMinutes()
     );
-    const relevantStylists = stylistId === 'any' ? STYLISTS.map(({ id }) => id) : [stylistId];
     const bookedSlots = schedule
-      .filter((slot) => {
-        const availableForSomeStylist = relevantStylists.some((id) => !result.rows.some((appointment) =>
-          appointment.stylist_id === id &&
-          appointment.start_minute < slot.endMinute &&
-          appointment.end_minute > slot.startMinute
-        ));
-        return !availableForSomeStylist;
-      })
+      .filter((slot) => result.rows.some((appointment) =>
+        appointment.start_minute < slot.endMinute &&
+        appointment.end_minute > slot.startMinute
+      ))
       .map((slot) => slot.start);
     return res.status(200).json({ bookedSlots });
   } catch (error) {
@@ -475,31 +627,19 @@ app.post('/api/appointments', async (req, res) => {
   try {
     client = await pool.connect();
     await client.query('BEGIN');
-    for (const candidate of candidates) {
-      await client.query(
-        'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2));',
-        [date, candidate]
-      );
-    }
-
-    let assignedStylistId = null;
-    for (const candidate of candidates) {
-      const overlap = await client.query(
-        `SELECT 1 FROM booking_appointments
-         WHERE appointment_date = $1 AND stylist_id = $2 AND status = 'confirmed'
-           AND start_minute < $3 AND end_minute > $4
-         LIMIT 1;`,
-        [date, candidate, endMinute, startMinute]
-      );
-      if (overlap.rowCount === 0) {
-        assignedStylistId = candidate;
-        break;
-      }
-    }
-    if (!assignedStylistId) {
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1), 0);', [date]);
+    const overlap = await client.query(
+      `SELECT 1 FROM booking_appointments
+       WHERE appointment_date = $1 AND status = 'confirmed'
+         AND start_minute < $2 AND end_minute > $3
+       LIMIT 1;`,
+      [date, endMinute, startMinute]
+    );
+    if (overlap.rowCount > 0) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'That time was just booked. Please choose another available time.' });
     }
+    const assignedStylistId = candidates[0];
 
     const referenceCode = crypto.randomBytes(5).toString('hex').toUpperCase();
     const inserted = await client.query(
@@ -548,6 +688,57 @@ app.post('/api/appointments', async (req, res) => {
   }
 });
 
+async function sendCancellationEmail(appointment) {
+  try {
+    await sendBrevoEmail({
+      to: appointment.email,
+      subject: `Test booking canceled — ${appointment.referenceCode}`,
+      htmlContent: `
+        <div style="font-family:Arial,sans-serif;color:#333;max-width:600px;margin:auto;padding:24px">
+          <h2>Le Salon NYC — Test Reservation Canceled</h2>
+          <p>Hello ${escapeHtml(appointment.fullName)}, your test reservation has been canceled.</p>
+          <p><strong>Services:</strong> ${escapeHtml(appointment.serviceNames.join(', '))}<br>
+          <strong>Date and time:</strong> ${escapeHtml(appointment.date)}, ${escapeHtml(appointment.startTime)} – ${escapeHtml(appointment.endTime)} (New York time)<br>
+          <strong>Reference code:</strong> ${escapeHtml(appointment.referenceCode)}</p>
+        </div>`,
+    });
+    return { sent: true, customer: { accepted: true } };
+  } catch (error) {
+    console.error(`Brevo cancellation email failed for reference ${appointment.referenceCode}:`, error.message);
+    return {
+      sent: false,
+      customer: { accepted: false, error: error.message },
+      message: 'Cancellation saved, but Brevo did not accept the email.',
+    };
+  }
+}
+
+app.post('/api/admin/appointments/:id/cancel', requireAdmin, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id) || !Number.isSafeInteger(Number(req.params.id))) {
+    return res.status(400).json({ error: 'Choose a valid appointment.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE booking_appointments
+       SET status = 'canceled'
+       WHERE id = $1 AND status = 'confirmed'
+       RETURNING *;`,
+      [req.params.id]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'No active reservation matches that appointment.' });
+    }
+
+    const appointment = formatAppointment(result.rows[0]);
+    const emailStatus = await sendCancellationEmail(appointment);
+    return res.status(200).json({ success: true, appointment, emailStatus });
+  } catch (error) {
+    console.error('Admin appointment cancellation failed:', error.message);
+    return res.status(500).json({ error: 'The reservation could not be canceled. Please try again.' });
+  }
+});
+
 app.post('/api/cancel', async (req, res) => {
   const referenceCode = typeof req.body?.referenceCode === 'string'
     ? req.body.referenceCode.trim().toUpperCase()
@@ -570,29 +761,7 @@ app.post('/api/cancel', async (req, res) => {
     }
 
     const appointment = formatAppointment(result.rows[0]);
-    let emailStatus;
-    try {
-      await sendBrevoEmail({
-        to: appointment.email,
-        subject: `Test booking canceled — ${appointment.referenceCode}`,
-        htmlContent: `
-          <div style="font-family:Arial,sans-serif;color:#333;max-width:600px;margin:auto;padding:24px">
-            <h2>Le Salon NYC — Test Reservation Canceled</h2>
-            <p>Hello ${escapeHtml(appointment.fullName)}, your test reservation has been canceled.</p>
-            <p><strong>Services:</strong> ${escapeHtml(appointment.serviceNames.join(', '))}<br>
-            <strong>Date and time:</strong> ${escapeHtml(appointment.date)}, ${escapeHtml(appointment.startTime)} – ${escapeHtml(appointment.endTime)} (New York time)<br>
-            <strong>Reference code:</strong> ${escapeHtml(appointment.referenceCode)}</p>
-          </div>`,
-      });
-      emailStatus = { sent: true, customer: { accepted: true } };
-    } catch (error) {
-      console.error(`Brevo cancellation email failed for reference ${appointment.referenceCode}:`, error.message);
-      emailStatus = {
-        sent: false,
-        customer: { accepted: false, error: error.message },
-        message: 'Cancellation saved, but Brevo did not accept the email.',
-      };
-    }
+    const emailStatus = await sendCancellationEmail(appointment);
     return res.status(200).json({
       success: true,
       message: 'Reservation canceled successfully.',

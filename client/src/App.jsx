@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import AdminPanel from './AdminPanel.jsx';
 
 const SALON_TIME_ZONE = 'America/New_York';
 
@@ -21,7 +22,9 @@ async function apiRequest(path, options = {}) {
 
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(result.error || 'The request could not be completed. Please try again.');
+    const requestError = new Error(result.error || 'The request could not be completed. Please try again.');
+    requestError.status = response.status;
+    throw requestError;
   }
   return result;
 }
@@ -168,6 +171,29 @@ export default function App() {
     return () => controller.abort();
   }, [selectedDate, totalDuration, selectedStylist.id]);
 
+  useEffect(() => {
+    if (activeTab !== 'book' || step !== 3 || totalDuration <= 0) return undefined;
+
+    let controller;
+    const refreshAvailability = () => {
+      if (controller) controller.abort();
+      controller = new AbortController();
+      requestAvailability(selectedDate, totalDuration, selectedStylist.id, controller.signal)
+        .then((result) => setAvailability({ bookedSlots: result.bookedSlots, loading: false, error: '' }))
+        .catch((error) => {
+          if (error.name !== 'AbortError') {
+            setAvailability((current) => ({ ...current, loading: false, error: error.message }));
+          }
+        });
+    };
+
+    const intervalId = setInterval(refreshAvailability, 20000);
+    return () => {
+      clearInterval(intervalId);
+      if (controller) controller.abort();
+    };
+  }, [activeTab, step, selectedDate, totalDuration, selectedStylist.id]);
+
   // Guest Contact & Form State
   const [guest, setGuest] = useState({ fullName: '', email: '', phone: '', notes: '' });
   const [policyAccepted, setPolicyAccepted] = useState(false);
@@ -279,6 +305,15 @@ export default function App() {
         emailStatus: result.emailStatus,
       });
     } catch (error) {
+      if (error.status === 409) {
+        requestAvailability(selectedDate, totalDuration, selectedStylist.id)
+          .then((result) => setAvailability({ bookedSlots: result.bookedSlots, loading: false, error: '' }))
+          .catch((availabilityError) => setAvailability({
+            bookedSlots: [],
+            loading: false,
+            error: availabilityError.message,
+          }));
+      }
       setValidationError(error.message);
     } finally {
       setIsSubmitting(false);
@@ -349,6 +384,14 @@ export default function App() {
             >
               Manage / Cancel
             </button>
+            <button
+              role="tab"
+              aria-selected={activeTab === 'admin'}
+              className={`tab-btn ${activeTab === 'admin' ? 'active' : ''}`}
+              onClick={() => setActiveTab('admin')}
+            >
+              Admin
+            </button>
           </div>
         </div>
       </header>
@@ -358,7 +401,9 @@ export default function App() {
         <div className="status-alert alert-warning" role="note" style={{ marginBottom: '18px' }}>
           TEST MODE — do not use this page for real salon appointments.
         </div>
-        {activeTab === 'book' ? (
+        {activeTab === 'admin' ? (
+          <AdminPanel />
+        ) : activeTab === 'book' ? (
           activeConfirmation ? (
             /* Confirmation Screen (TC-022) */
             <div className="card-box" style={{ textAlign: 'center', padding: '36px 20px' }}>

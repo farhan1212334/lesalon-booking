@@ -10,9 +10,19 @@ Add these environment variables to the Vercel project:
 - `BREVO_API_KEY` (required for booking emails): Brevo API key.
 - `SENDER_EMAIL` (required for booking emails): verified sender email address.
 - `ADMIN_EMAIL` (required for booking emails): salon notification address.
+- `ADMIN_PASSWORD` (required for the admin panel): a unique password with at least 16 characters.
 - `REPLY_TO_EMAIL` (optional): reply-to address.
 
 Do not set `VITE_API_BASE_URL`; the client calls `/api` on its own domain. Redeploy after updating the root directory or environment variables.
+
+The Admin tab requires the `ADMIN_PASSWORD` environment variable and uses an
+HTTP-only, same-site session cookie. Signed-in admins can search, filter, and
+cancel appointments stored in PostgreSQL. Admin cancellations use the existing
+customer cancellation email flow.
+
+Confirmed appointments reserve their time interval across all stylists. Booking
+requests for the same date are serialized in PostgreSQL before checking for
+overlaps, so concurrent submissions cannot claim an already-booked time.
 
 ## Local development
 
