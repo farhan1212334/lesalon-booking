@@ -207,7 +207,7 @@ async function sendBrevoEmail({ to, subject, htmlContent }) {
   }
 
   const payload = {
-    sender: { name: 'Le Salon NYC — Test Booking', email: senderEmail },
+    sender: { name: 'Le Salon NYC', email: senderEmail },
     to: [{ email: to }],
     subject,
     htmlContent,
@@ -260,20 +260,20 @@ async function sendBookingEmails(appointment) {
     : `$${appointment.price}`;
   const customerHtml = `
     <div style="font-family:Arial,sans-serif;color:#333;max-width:600px;margin:auto;padding:24px">
-      <h2>Le Salon NYC — Test Reservation</h2>
+      <h2>Le Salon NYC — Appointment Confirmation</h2>
       <p>Hello ${customerName},</p>
-      <p>Your test appointment has been saved.</p>
+      <p>Your appointment has been confirmed.</p>
       <p><strong>Services:</strong> ${serviceNames}<br>
       <strong>Stylist:</strong> ${stylistName}<br>
       <strong>Date:</strong> ${date}<br>
       <strong>Time:</strong> ${startTime} – ${endTime} (New York time)<br>
       <strong>Estimate:</strong> ${price}<br>
       <strong>Reference code:</strong> ${referenceCode}</p>
-      <p>Use your reference code and email address to cancel this test booking.</p>
+      <p>Use your reference code and email address to cancel this appointment.</p>
     </div>`;
   const salonHtml = `
     <div style="font-family:Arial,sans-serif;color:#333;max-width:600px;margin:auto;padding:24px">
-      <h2>New test reservation</h2>
+      <h2>New appointment</h2>
       <p><strong>Customer:</strong> ${customerName}<br>
       <strong>Email:</strong> ${escapeHtml(appointment.email)}<br>
       <strong>Phone:</strong> ${escapeHtml(appointment.phone)}<br>
@@ -289,7 +289,7 @@ async function sendBookingEmails(appointment) {
       recipient: 'customer',
       send: () => sendBrevoEmail({
         to: appointment.email,
-        subject: `Test booking received — ${appointment.referenceCode}`,
+        subject: `Appointment confirmed — ${appointment.referenceCode}`,
         htmlContent: customerHtml,
       }),
     },
@@ -298,7 +298,7 @@ async function sendBookingEmails(appointment) {
       send: () => adminEmail
         ? sendBrevoEmail({
           to: adminEmail,
-          subject: `New test booking — ${appointment.referenceCode}`,
+          subject: `New appointment — ${appointment.referenceCode}`,
           htmlContent: salonHtml,
         })
         : Promise.reject(new Error('ADMIN_EMAIL is not set in the Render environment.')),
@@ -1131,11 +1131,11 @@ async function sendCancellationEmail(appointment) {
   try {
     await sendBrevoEmail({
       to: appointment.email,
-      subject: `Test booking canceled — ${appointment.referenceCode}`,
+      subject: `Appointment canceled — ${appointment.referenceCode}`,
       htmlContent: `
         <div style="font-family:Arial,sans-serif;color:#333;max-width:600px;margin:auto;padding:24px">
-          <h2>Le Salon NYC — Test Reservation Canceled</h2>
-          <p>Hello ${escapeHtml(appointment.fullName)}, your test reservation has been canceled.</p>
+          <h2>Le Salon NYC — Appointment Canceled</h2>
+          <p>Hello ${escapeHtml(appointment.fullName)}, your appointment has been canceled.</p>
           <p><strong>Services:</strong> ${escapeHtml(appointment.serviceNames.join(', '))}<br>
           <strong>Date and time:</strong> ${escapeHtml(appointment.date)}, ${escapeHtml(appointment.startTime)} – ${escapeHtml(appointment.endTime)} (New York time)<br>
           <strong>Reference code:</strong> ${escapeHtml(appointment.referenceCode)}</p>
@@ -1305,7 +1305,7 @@ async function startServer() {
   try {
     await ensureDatabaseInitialized();
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`Le Salon NYC test booking API listening on port ${PORT}.`);
+      console.log(`Le Salon NYC booking API listening on port ${PORT}.`);
     });
   } catch (error) {
     console.error('API startup failed; check DATABASE_URL and database availability:', error.message);

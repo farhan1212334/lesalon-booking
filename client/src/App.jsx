@@ -441,9 +441,6 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="main-wrapper">
-        <div className="status-alert alert-warning" role="note" style={{ marginBottom: '18px' }}>
-          TEST MODE — do not use this page for real salon appointments.
-        </div>
         {activeTab === 'admin' ? (
           <AdminPanel />
         ) : activeTab === 'book' ? (
@@ -462,6 +459,9 @@ export default function App() {
                 Admin notification: {activeConfirmation.emailStatus.admin.accepted
                   ? 'accepted'
                   : `failed — ${activeConfirmation.emailStatus.admin.error}`}
+              </p>
+              <p style={{ color: '#6b6560', fontSize: '0.88rem', marginBottom: '16px' }}>
+                No payment is collected through this website when you book. The displayed price is an estimate.
               </p>
 
               <div style={{ background: '#faf9f6', border: '1px solid #e7e3da', borderRadius: '14px', padding: '20px', textAlign: 'left', marginBottom: '24px' }}>
@@ -837,6 +837,9 @@ export default function App() {
 
                   <div className="card-box">
                     <div className="card-box-header">Le Salon NYC Terms & Policies</div>
+                    <p style={{ color: '#6b6560', fontSize: '0.85rem', marginBottom: '12px' }}>
+                      No payment is collected through this website when you book. Service prices shown are estimates.
+                    </p>
                     
                     <div className="policy-list">
                       <div className="policy-item">

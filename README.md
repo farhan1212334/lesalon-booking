@@ -20,6 +20,10 @@ Generate `CRON_SECRET` locally with
 then add it to the **Production** environment of the Vercel project serving the
 live app. Keep the value private.
 
+The current booking flow confirms reservations without collecting online
+payment. Prices are estimates; payment integration will be added after the
+salon's payment rules are confirmed.
+
 The Admin tab requires the `ADMIN_PIN` environment variable (exactly six digits) and uses
 database-backed sessions in an HTTP-only, same-site cookie. PIN failures are
 rate-limited using PostgreSQL. Signed-in admins can browse appointments in a
