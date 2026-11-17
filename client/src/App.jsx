@@ -55,6 +55,20 @@ const STYLISTS_DATA = [
   { id: 'ashraf', name: 'Ashraf', title: 'Master Stylist & Founder' }
 ];
 
+const COLOR_PRODUCT_FREE_FROM = [
+  'NO AMMONIA',
+  'NO PARABENS',
+  'NO RESORCINOL',
+  'NO ARTIFICIAL FRAGRANCES',
+  'NO PHTHALATES',
+  'NO PROPYLENE GLYCOL',
+  'NO GMOs',
+  'NO GLUTEN',
+  'NO ANIMAL TESTING',
+  'NO SODIUM LAURYL SULFATE',
+  'NO THIOGLYCOLATES',
+];
+
 // Helper: Convert Minutes to 12-Hour Time Format (e.g., 600 -> "10:00 AM")
 function formatMinutesTo12H(minutes) {
   const h = Math.floor(minutes / 60);
@@ -110,6 +124,7 @@ const getMaxDateStr = () => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('book'); // 'book' | 'manage'
+  const [hasStartedBooking, setHasStartedBooking] = useState(false);
   const [step, setStep] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [services, setServices] = useState([]);
@@ -406,7 +421,7 @@ export default function App() {
       <header className="app-header">
         <div className="header-container">
           <div className="brand-block">
-            <span className="brand-title">LE SALON NYC</span>
+            <span className="brand-title">Le Salon NYC</span>
             <span className="brand-subtitle">Exclusively Organic</span>
           </div>
 
@@ -415,7 +430,11 @@ export default function App() {
               role="tab"
               aria-selected={activeTab === 'book'}
               className={`tab-btn ${activeTab === 'book' ? 'active' : ''}`}
-              onClick={() => { setActiveTab('book'); setActiveConfirmation(null); }}
+              onClick={() => {
+                setActiveTab('book');
+                setActiveConfirmation(null);
+                setHasStartedBooking(false);
+              }}
             >
               Book Service
             </button>
@@ -444,7 +463,49 @@ export default function App() {
         {activeTab === 'admin' ? (
           <AdminPanel />
         ) : activeTab === 'book' ? (
-          activeConfirmation ? (
+          !hasStartedBooking ? (
+            <section className="welcome-page" aria-labelledby="product-intro-title">
+              <div className="welcome-heading">
+                <p className="product-eyebrow">Le Salon NYC · Exclusively Organic</p>
+                <h1 id="product-intro-title">BEAUTIFUL HAIR. A MORE NATURAL CHOICE.</h1>
+                <p>Discover the products and treatments we use before you begin your appointment.</p>
+              </div>
+
+              <div className="treatment-highlights" aria-label="Formaldehyde-free treatments">
+                <div className="treatment-highlight">
+                  <span>Organic Perm</span>
+                  <strong>NO FORMALDEHYDE</strong>
+                </div>
+                <div className="treatment-highlight">
+                  <span>Keratin Protein Treatments</span>
+                  <strong>NO FORMALDEHYDE</strong>
+                </div>
+              </div>
+
+              <section className="color-products" aria-labelledby="color-products-title">
+                <div className="color-products-copy">
+                  <h2 id="color-products-title">Our professional color products are formulated without:</h2>
+                  <ul className="ingredient-list">
+                    {COLOR_PRODUCT_FREE_FROM.map((ingredient) => (
+                      <li key={ingredient}>{ingredient}</li>
+                    ))}
+                  </ul>
+                </div>
+                <p className="vegan-products-note">
+                  Our products are vegan and provide 100% gray coverage, helping your hair look
+                  healthy, vibrant, and radiant.
+                </p>
+              </section>
+
+              <button
+                type="button"
+                className="btn-primary welcome-continue"
+                onClick={() => setHasStartedBooking(true)}
+              >
+                Start Your Appointment
+              </button>
+            </section>
+          ) : activeConfirmation ? (
             /* Confirmation Screen (TC-022) */
             <div className="card-box" style={{ textAlign: 'center', padding: '36px 20px' }}>
               <div style={{ fontSize: '3rem', color: '#059669', marginBottom: '12px' }}>✓</div>
@@ -487,7 +548,12 @@ export default function App() {
                 </div>
               </div>
 
-              <button className="btn-primary" onClick={() => { setActiveConfirmation(null); setStep(1); setSelectedServices([]); }}>
+              <button className="btn-primary" onClick={() => {
+                setActiveConfirmation(null);
+                setStep(1);
+                setSelectedServices([]);
+                setHasStartedBooking(false);
+              }}>
                 Book Another Service
               </button>
             </div>

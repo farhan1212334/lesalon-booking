@@ -78,7 +78,7 @@ body {
 
 .brand-subtitle {
   font-size: 0.65rem;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--gold-primary);
@@ -121,6 +121,109 @@ body {
   max-width: 860px;
   margin: 0 auto;
   padding: 24px 16px 80px 16px;
+}
+
+.welcome-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.welcome-heading {
+  padding: 18px 12px 8px;
+  text-align: center;
+}
+
+.product-eyebrow {
+  color: var(--gold-hover);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.welcome-heading h1 {
+  margin: 8px 0;
+  font-family: var(--font-serif);
+  font-size: clamp(1.55rem, 4vw, 2.15rem);
+  line-height: 1.25;
+}
+
+.welcome-heading > p:last-child {
+  color: var(--body-muted);
+}
+
+.treatment-highlights {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.treatment-highlight {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px;
+  background: var(--gold-light);
+  border: 1px solid var(--gold-border);
+  border-radius: var(--radius-md);
+}
+
+.treatment-highlight span {
+  font-weight: 600;
+}
+
+.treatment-highlight strong {
+  color: var(--gold-hover);
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+}
+
+.color-products {
+  padding: 22px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-subtle);
+}
+
+.color-products h2 {
+  margin-bottom: 16px;
+  font-family: var(--font-serif);
+  font-size: 1.2rem;
+}
+
+.ingredient-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 16px;
+  list-style: none;
+}
+
+.ingredient-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.ingredient-list li::before {
+  color: var(--gold-primary);
+  content: "•";
+}
+
+.vegan-products-note {
+  margin-top: 18px;
+  padding-top: 16px;
+  color: var(--body-muted);
+  border-top: 1px solid var(--border-light);
+  font-size: 0.9rem;
+}
+
+.welcome-continue {
+  align-self: center;
+  width: min(100%, 340px);
 }
 
 /* Stepper Progress Bar */
@@ -570,6 +673,9 @@ body {
     gap: 12px;
     align-items: flex-start;
   }
+  .ingredient-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .tab-nav {
     width: 100%;
   }
@@ -597,6 +703,13 @@ body {
   }
   .grid-slots-wide {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 380px) {
+  .treatment-highlights,
+  .ingredient-list {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
