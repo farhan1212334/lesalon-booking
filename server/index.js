@@ -985,7 +985,7 @@ async function availabilityHandler(req, res) {
 
   try {
     const result = await pool.query(
-      `SELECT stylist_id, start_minute, end_minute
+      `SELECT start_minute
        FROM booking_appointments
        WHERE appointment_date = $1 AND status = 'confirmed';`,
       [date]
@@ -998,16 +998,7 @@ async function availabilityHandler(req, res) {
         appointment.start_minute === slot.startMinute
       ))
       .map((slot) => slot.start);
-    const overlappingSlots = schedule
-      .filter((slot) =>
-        !bookedSlots.includes(slot.start) &&
-        result.rows.some((appointment) =>
-          appointment.start_minute < slot.endMinute &&
-          appointment.end_minute > slot.startMinute
-        )
-      )
-      .map((slot) => slot.start);
-    return res.status(200).json({ bookedSlots, overlappingSlots });
+    return res.status(200).json({ bookedSlots });
   } catch (error) {
     console.error('Availability query failed:', error.message);
     return res.status(503).json({ error: 'Availability is temporarily unavailable. Please try again.' });
@@ -1068,14 +1059,14 @@ app.post('/api/appointments', async (req, res) => {
     }
     startMinute = parseTime(startTime);
     endMinute = startMinute + selection.duration;
-    const overlap = await client.query(
+    const existingBooking = await client.query(
       `SELECT 1 FROM booking_appointments
        WHERE appointment_date = $1 AND status = 'confirmed'
-         AND start_minute < $2 AND end_minute > $3
+         AND start_minute = $2
        LIMIT 1;`,
-      [date, endMinute, startMinute]
+      [date, startMinute]
     );
-    if (overlap.rowCount > 0) {
+    if (existingBooking.rowCount > 0) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'That time was just booked. Please choose another available time.' });
     }
