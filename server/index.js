@@ -971,6 +971,7 @@ app.get(['/api/admin/appointments', '/api/admin-appointments'], requireAdmin, as
 });
 
 async function availabilityHandler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
   const { date, stylistId = 'any' } = req.query;
   const duration = Number(req.query.duration || 30);
   const dateError = validateBookableDate(date);

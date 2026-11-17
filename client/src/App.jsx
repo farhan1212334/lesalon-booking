@@ -31,7 +31,7 @@ async function apiRequest(path, options = {}) {
 
 function requestAvailability(date, duration, stylistId, signal) {
   const params = new URLSearchParams({ date, duration: String(duration), stylistId });
-  return apiRequest(`/api/availability?${params}`, { signal });
+  return apiRequest(`/api/availability?${params}`, { signal, cache: 'no-store' });
 }
 
 function getSalonDateString(date = new Date()) {
@@ -177,6 +177,7 @@ export default function App() {
     loading: false,
     error: '',
   });
+  const [availabilityRefreshKey, setAvailabilityRefreshKey] = useState(0);
 
   useEffect(() => {
     setSelectedSlotObj(scheduleInfo.slots[0] || null);
@@ -204,7 +205,7 @@ export default function App() {
       });
 
     return () => controller.abort();
-  }, [selectedDate, totalDuration, selectedStylist.id]);
+  }, [activeTab, step, selectedDate, totalDuration, selectedStylist.id, availabilityRefreshKey]);
 
   useEffect(() => {
     if (activeTab !== 'book' || step !== 3 || totalDuration <= 0) return undefined;
@@ -385,22 +386,7 @@ export default function App() {
         }),
       });
       const appointment = result.appointment;
-      if (totalDuration > 0) {
-        setAvailability((current) => ({ ...current, loading: true, error: '' }));
-        requestAvailability(selectedDate, totalDuration, selectedStylist.id)
-          .then((availabilityResult) => setAvailability({
-            bookedSlots: availabilityResult.bookedSlots,
-            overlappingSlots: availabilityResult.overlappingSlots,
-            loading: false,
-            error: '',
-          }))
-          .catch((error) => setAvailability({
-            bookedSlots: [],
-            overlappingSlots: [],
-            loading: false,
-            error: error.message,
-          }));
-      }
+      setAvailabilityRefreshKey((key) => key + 1);
       setCancelFeedback({
         success: true,
         message: `Reservation ${appointment.referenceCode} canceled for ${appointment.date} at ${appointment.startTime}.${result.emailStatus.sent ? ' The cancellation email was accepted by Brevo.' : ` ${result.emailStatus.customer?.error || result.emailStatus.message}`}`
@@ -766,6 +752,9 @@ export default function App() {
                         <label className="form-label" style={{ marginTop: '14px' }}>
                           Available Windows for {totalDuration} Mins Duration ({getDayOfWeek(selectedDate) === 6 ? 'Saturday: 10 AM – 6 PM' : 'Mon – Fri: 10 AM – 8 PM'})
                         </label>
+                        <p className="availability-note">
+                          Only the exact reserved start time is marked booked. Other starts are unavailable only when they overlap an existing appointment's full service time.
+                        </p>
 
                         {availability.error && (
                           <div className="status-alert alert-warning" role="alert">
@@ -797,7 +786,7 @@ export default function App() {
                                   {isBooked
                                     ? 'Already Reserved'
                                     : overlapsBooking
-                                      ? 'Unavailable — overlaps another appointment'
+                                      ? 'Unavailable — overlaps an existing appointment'
                                       : `Full ${totalDuration} min window`}
                                 </span>
                               </button>

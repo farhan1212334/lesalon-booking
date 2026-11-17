@@ -423,6 +423,12 @@ body {
   margin-bottom: 20px;
 }
 
+.availability-note {
+  margin: -4px 0 12px;
+  color: var(--body-muted);
+  font-size: 0.78rem;
+}
+
 .grid-slots-wide {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
