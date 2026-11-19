@@ -123,7 +123,8 @@ const getMaxDateStr = () => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('book'); // 'book' | 'manage'
+  const [activeTab, setActiveTab] = useState('book'); // 'book' | 'manage' | 'admin'
+  const [navigationError, setNavigationError] = useState('');
   const [hasStartedBooking, setHasStartedBooking] = useState(false);
   const [step, setStep] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('All');
@@ -401,6 +402,29 @@ export default function App() {
     }
   };
 
+  const handlePrimaryTabChange = async (nextTab) => {
+    setNavigationError('');
+    if (activeTab === 'admin' && nextTab !== 'admin') {
+      try {
+        await apiRequest('/api/admin-logout', {
+          method: 'POST',
+          body: '{}',
+        });
+      } catch (error) {
+        setNavigationError(`Could not securely sign out of Admin: ${error.message}`);
+        return;
+      }
+    }
+
+    if (nextTab === 'book') {
+      setActiveConfirmation(null);
+      setHasStartedBooking(false);
+    } else if (nextTab === 'manage') {
+      setCancelFeedback(null);
+    }
+    setActiveTab(nextTab);
+  };
+
   return (
     <div>
       {/* Header Bar */}
@@ -416,11 +440,7 @@ export default function App() {
               role="tab"
               aria-selected={activeTab === 'book'}
               className={`tab-btn ${activeTab === 'book' ? 'active' : ''}`}
-              onClick={() => {
-                setActiveTab('book');
-                setActiveConfirmation(null);
-                setHasStartedBooking(false);
-              }}
+              onClick={() => handlePrimaryTabChange('book')}
             >
               Book Service
             </button>
@@ -428,7 +448,7 @@ export default function App() {
               role="tab"
               aria-selected={activeTab === 'manage'}
               className={`tab-btn ${activeTab === 'manage' ? 'active' : ''}`}
-              onClick={() => { setActiveTab('manage'); setCancelFeedback(null); }}
+              onClick={() => handlePrimaryTabChange('manage')}
             >
               Manage / Cancel
             </button>
@@ -436,7 +456,7 @@ export default function App() {
               role="tab"
               aria-selected={activeTab === 'admin'}
               className={`tab-btn ${activeTab === 'admin' ? 'active' : ''}`}
-              onClick={() => setActiveTab('admin')}
+              onClick={() => handlePrimaryTabChange('admin')}
             >
               Admin
             </button>
@@ -446,6 +466,9 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="main-wrapper">
+        {navigationError && (
+          <div className="status-alert alert-warning" role="alert">{navigationError}</div>
+        )}
         {activeTab === 'admin' ? (
           <AdminPanel />
         ) : activeTab === 'book' ? (

@@ -721,6 +721,8 @@ body {
 
 .admin-panel {
   min-width: 0;
+  display: grid;
+  gap: 16px;
 }
 
 .admin-login {
@@ -758,10 +760,23 @@ body {
 
 .admin-toolbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 18px;
+  min-width: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-subtle);
+}
+
+.admin-toolbar > div {
+  min-width: 0;
+}
+
+.admin-toolbar h2 {
+  margin-bottom: 6px;
 }
 
 .admin-toolbar p {
@@ -776,16 +791,21 @@ body {
 
 .admin-module-nav {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border-light);
+  width: fit-content;
+  max-width: 100%;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 4px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
 }
 
 .admin-module-nav button {
-  min-height: 44px;
-  padding: 0 16px;
+  min-height: 40px;
+  padding: 0 14px;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--body-muted);
   cursor: pointer;
@@ -794,7 +814,7 @@ body {
 }
 
 .admin-module-nav button.active {
-  border-bottom-color: var(--gold-primary);
+  background: var(--gold-light);
   color: var(--gold-hover);
 }
 
@@ -1045,7 +1065,12 @@ body {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 0;
+  padding: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-subtle);
 }
 
 .admin-calendar-controls {
@@ -1131,6 +1156,8 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(150px, 1fr) minmax(160px, 1fr);
   gap: 14px;
+  margin-bottom: 0;
+  padding: 18px;
 }
 
 .admin-filter-field {
@@ -1143,7 +1170,7 @@ body {
 
 .admin-calendar-scroll {
   overflow-x: auto;
-  margin-bottom: 16px;
+  margin-bottom: 0;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   background: var(--card-bg);
@@ -1409,8 +1436,14 @@ body {
     align-items: center;
   }
 
-  .admin-toolbar > div {
-    min-width: 0;
+  .admin-module-nav {
+    width: 100%;
+  }
+
+  .admin-module-nav button {
+    flex: 1 0 auto;
+    padding-right: 12px;
+    padding-left: 12px;
   }
 
   .admin-customer-detail-heading {

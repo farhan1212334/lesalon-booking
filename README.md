@@ -26,7 +26,8 @@ salon's payment rules are confirmed.
 
 The Admin tab requires the `ADMIN_PIN` environment variable (exactly six digits) and uses
 database-backed sessions in an HTTP-only, same-site cookie. PIN failures are
-rate-limited using PostgreSQL. Signed-in admins can browse appointments in a
+rate-limited using PostgreSQL. Leaving the Admin tab signs out the current
+session; opening it again requires the PIN. Signed-in admins can browse appointments in a
 day/week calendar or the existing paginated list. The calendar places
 appointments on their matching date and time; the list shows upcoming confirmed
 appointments in nearest-first order, followed by recent and canceled records.
