@@ -6,7 +6,8 @@
     "node": ">=18.17"
   },
   "scripts": {
-    "build": "npm --prefix client ci && npm --prefix client run build"
+    "build": "npm --prefix client ci && npm --prefix client run build",
+    "test": "node --test server/booking-schedule.test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

@@ -3,6 +3,7 @@ require('dotenv').config();
 const crypto = require('crypto');
 const express = require('express');
 const { Pool } = require('pg');
+const { getSlotAvailability, hasTimeConflict } = require('./booking-schedule');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
@@ -985,7 +986,7 @@ async function availabilityHandler(req, res) {
 
   try {
     const result = await pool.query(
-      `SELECT start_minute
+      `SELECT start_minute, end_minute
        FROM booking_appointments
        WHERE appointment_date = $1 AND status = 'confirmed';`,
       [date]
@@ -993,12 +994,7 @@ async function availabilityHandler(req, res) {
     const schedule = getSchedule(date, duration).filter((slot) =>
       date !== getSalonDate() || slot.startMinute > getCurrentSalonMinutes()
     );
-    const bookedSlots = schedule
-      .filter((slot) => result.rows.some((appointment) =>
-        appointment.start_minute === slot.startMinute
-      ))
-      .map((slot) => slot.start);
-    return res.status(200).json({ bookedSlots });
+    return res.status(200).json(getSlotAvailability(schedule, result.rows));
   } catch (error) {
     console.error('Availability query failed:', error.message);
     return res.status(503).json({ error: 'Availability is temporarily unavailable. Please try again.' });
@@ -1059,14 +1055,13 @@ app.post('/api/appointments', async (req, res) => {
     }
     startMinute = parseTime(startTime);
     endMinute = startMinute + selection.duration;
-    const existingBooking = await client.query(
-      `SELECT 1 FROM booking_appointments
-       WHERE appointment_date = $1 AND status = 'confirmed'
-         AND start_minute = $2
-       LIMIT 1;`,
-      [date, startMinute]
+    const existingBookings = await client.query(
+      `SELECT start_minute, end_minute
+       FROM booking_appointments
+       WHERE appointment_date = $1 AND status = 'confirmed';`,
+      [date]
     );
-    if (existingBooking.rowCount > 0) {
+    if (hasTimeConflict(startMinute, endMinute, existingBookings.rows)) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'That time was just booked. Please choose another available time.' });
     }

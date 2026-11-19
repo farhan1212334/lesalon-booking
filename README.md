@@ -42,9 +42,13 @@ remain eligible for another attempt on a later run while the appointment is
 still upcoming. Set `CRON_SECRET` in the production Vercel environment and
 redeploy to enable reminders.
 
-Confirmed appointments reserve their time interval across all stylists. Booking
-requests for the same date are serialized in PostgreSQL before checking for
-overlaps, so concurrent submissions cannot claim an already-booked time.
+Confirmed appointments reserve their full service-duration interval across all
+stylists. Available start times are recalculated for the selected service
+duration; a start is unavailable if its time window overlaps a confirmed
+appointment, while back-to-back appointments are allowed. Canceled appointments
+do not block availability. Booking requests for the same date are serialized in
+PostgreSQL and checked against the same interval rule, so concurrent submissions
+cannot create overlapping appointments.
 
 ## Local development
 
