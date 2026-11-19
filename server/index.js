@@ -992,6 +992,17 @@ app.get(['/api/admin/appointments', '/api/admin-appointments'], requireAdmin, as
   }
 });
 
+app.delete(['/api/admin/appointments', '/api/admin-appointments'], requireAdmin, async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const result = await pool.query('DELETE FROM booking_appointments;');
+    return res.status(200).json({ deletedCount: result.rowCount });
+  } catch (error) {
+    console.error('Admin appointment clear failed:', error.message);
+    return res.status(503).json({ error: 'Appointment records could not be cleared. Please try again.' });
+  }
+});
+
 async function availabilityHandler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   const { date, stylistId = 'any' } = req.query;

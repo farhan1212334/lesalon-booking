@@ -744,7 +744,22 @@ export default function AdminPanel() {
   const [calendarWarning, setCalendarWarning] = useState('');
   const [feedback, setFeedback] = useState('');
   const [cancelingId, setCancelingId] = useState(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearingAppointments, setClearingAppointments] = useState(false);
+  const [clearError, setClearError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    if (!showClearConfirm) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && !clearingAppointments) {
+        setShowClearConfirm(false);
+        setClearError('');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showClearConfirm, clearingAppointments]);
 
   useEffect(() => {
     let active = true;
@@ -861,6 +876,25 @@ export default function AdminPanel() {
     }
   };
 
+  const handleClearAppointments = async () => {
+    setClearingAppointments(true);
+    setClearError('');
+    setListError('');
+    try {
+      const result = await adminRequest('/api/admin-appointments', { method: 'DELETE' });
+      setAppointments([]);
+      setSelectedAppointmentId(null);
+      setOffset(0);
+      setFeedback(`Cleared ${result.deletedCount} appointment record${result.deletedCount === 1 ? '' : 's'}. Customer appointment history is also cleared, and all time slots are available again.`);
+      setShowClearConfirm(false);
+      setReloadKey((key) => key + 1);
+    } catch (error) {
+      setClearError(error.message);
+    } finally {
+      setClearingAppointments(false);
+    }
+  };
+
   if (authState === 'checking') {
     return <section className="card-box admin-panel"><p role="status">Checking admin access…</p></section>;
   }
@@ -914,7 +948,22 @@ export default function AdminPanel() {
                 : 'Manage reservations saved in the booking database.'}
           </p>
         </div>
-        <button type="button" className="btn-secondary admin-logout" onClick={handleLogout}>Sign out</button>
+        <div className="admin-toolbar-actions">
+          {adminSection === 'appointments' && (
+            <button
+              type="button"
+              className="btn-danger admin-clear-trigger"
+              disabled={clearingAppointments || cancelingId !== null}
+              onClick={() => {
+                setClearError('');
+                setShowClearConfirm(true);
+              }}
+            >
+              Clear all appointments
+            </button>
+          )}
+          <button type="button" className="btn-secondary admin-logout" onClick={handleLogout}>Sign out</button>
+        </div>
       </div>
 
       <div className="admin-module-nav" role="group" aria-label="Admin section">
@@ -1115,6 +1164,62 @@ export default function AdminPanel() {
         </>
       )}
         </>
+      )}
+      {showClearConfirm && (
+        <div className="admin-clear-backdrop">
+          <section
+            className="admin-clear-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-busy={clearingAppointments}
+            aria-labelledby="adminClearTitle"
+            aria-describedby="adminClearDescription"
+            onKeyDown={(event) => {
+              if (event.key !== 'Tab') return;
+              const buttons = event.currentTarget.querySelectorAll('button:not(:disabled)');
+              if (!buttons.length) return;
+              const firstButton = buttons[0];
+              const lastButton = buttons[buttons.length - 1];
+              if (event.shiftKey && document.activeElement === firstButton) {
+                event.preventDefault();
+                lastButton.focus();
+              } else if (!event.shiftKey && document.activeElement === lastButton) {
+                event.preventDefault();
+                firstButton.focus();
+              }
+            }}
+          >
+            <p className="admin-clear-warning">Permanent action</p>
+            <h3 id="adminClearTitle">Erase all appointment records?</h3>
+            <p id="adminClearDescription">
+              This permanently deletes every confirmed and canceled appointment, including customer contact details, notes, and appointment history. All booked time slots will be released. Your service catalog and admin settings will remain.
+            </p>
+            <p className="admin-clear-irreversible">This cannot be undone.</p>
+            {clearError && <div className="status-alert alert-warning" role="alert">{clearError}</div>}
+            <div className="admin-clear-dialog-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                autoFocus
+                disabled={clearingAppointments}
+                onClick={() => {
+                  setShowClearConfirm(false);
+                  setClearError('');
+                }}
+              >
+                Keep appointments
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={clearingAppointments}
+                onClick={handleClearAppointments}
+              >
+                {clearingAppointments ? 'Erasing records…' : 'Erase all appointments'}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </section>
   );

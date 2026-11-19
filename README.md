@@ -37,7 +37,11 @@ and search customer records by name, email, or phone to view their appointment
 history grouped by email address. Admins can add, edit, and archive services in
 the database-backed catalog; catalog changes affect new bookings, while
 existing appointments retain their saved service, price, and duration. Admin
-cancellations use the existing customer cancellation email flow.
+cancellations use the existing customer cancellation email flow. Admins can
+also permanently erase every appointment record, including canceled bookings,
+after confirming; this removes the associated customer appointment history and
+releases all booked time slots without deleting the service catalog or admin
+settings.
 Customers who accept the reservation policies receive one transactional email
 reminder on the day before a confirmed appointment. Vercel runs the reminder
 job daily at 14:00 UTC (approximately 9:00 or 10:00 a.m. in New York, depending
