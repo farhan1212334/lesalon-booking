@@ -7,7 +7,7 @@
   },
   "scripts": {
     "build": "npm --prefix client ci && npm --prefix client run build",
-    "test": "node --test server/booking-schedule.test.js"
+    "test": "node --test server/booking-schedule.test.js server/date-format.test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

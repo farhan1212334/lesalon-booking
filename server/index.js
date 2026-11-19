@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const express = require('express');
 const { Pool } = require('pg');
 const { getSlotAvailability, hasTimeConflict } = require('./booking-schedule');
+const { formatDateOnly } = require('./date-format');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
@@ -368,7 +369,7 @@ function formatAppointment(row) {
     duration: row.duration_minutes,
     stylistId: row.stylist_id,
     stylistName: STYLIST_NAMES[row.stylist_id] || row.stylist_id,
-    date: row.appointment_date,
+    date: formatDateOnly(row.appointment_date),
     startTime: formatTime(row.start_minute),
     endTime: formatTime(row.end_minute),
     status: row.status,
@@ -955,7 +956,27 @@ app.get(['/api/admin/appointments', '/api/admin-appointments'], requireAdmin, as
     const result = await pool.query(
       `SELECT * FROM booking_appointments
        ${whereClause}
-       ORDER BY appointment_date DESC, start_minute DESC, id DESC
+       ORDER BY
+         CASE
+           WHEN status = 'confirmed'
+             AND appointment_date + start_minute * INTERVAL '1 minute'
+               >= (NOW() AT TIME ZONE 'America/New_York')
+           THEN 0
+           ELSE 1
+         END,
+         CASE
+           WHEN status = 'confirmed'
+             AND appointment_date + start_minute * INTERVAL '1 minute'
+               >= (NOW() AT TIME ZONE 'America/New_York')
+           THEN appointment_date
+         END ASC,
+         CASE
+           WHEN status = 'confirmed'
+             AND appointment_date + start_minute * INTERVAL '1 minute'
+               >= (NOW() AT TIME ZONE 'America/New_York')
+           THEN start_minute
+         END ASC,
+         appointment_date DESC, start_minute DESC, id DESC
        LIMIT $${values.length - 1} OFFSET $${values.length};`,
       values
     );

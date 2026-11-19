@@ -27,7 +27,11 @@ salon's payment rules are confirmed.
 The Admin tab requires the `ADMIN_PIN` environment variable (exactly six digits) and uses
 database-backed sessions in an HTTP-only, same-site cookie. PIN failures are
 rate-limited using PostgreSQL. Signed-in admins can browse appointments in a
-day/week calendar or the existing paginated list, search and filter records,
+day/week calendar or the existing paginated list. The calendar places
+appointments on their matching date and time; the list shows upcoming confirmed
+appointments in nearest-first order, followed by recent and canceled records.
+Canceled appointments are excluded from the default confirmed calendar/list and
+remain available through status filters. Admins can search and filter records,
 and search customer records by name, email, or phone to view their appointment
 history grouped by email address. Admins can add, edit, and archive services in
 the database-backed catalog; catalog changes affect new bookings, while
